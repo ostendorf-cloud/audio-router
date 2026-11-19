@@ -153,6 +153,46 @@ struct RouteSessionTests {
         #expect(backend.calls.isEmpty)
     }
 
+    // MARK: Tap check in the live gate
+
+    /// The live sequence for a buffer that is silent on the source pair: the IO proc flags device
+    /// input channel 1 as active, but `render` copies only zeros, so the signal flag stays off. The
+    /// wait then ends in `.silent`, never in `.present`.
+    @Test func aBufferSilentOnThePairStillGetsTheSpecificWarning() throws {
+        let backend = FakeBackend()
+        let session = RouteSession(backend: backend, plan: plan)
+        try session.start()
+        backend.setActive([0])  // device input 1 active, the tap buffer shows nothing
+        #expect(session.signalState(elapsed: 1) == .waiting)
+        #expect(session.tapReport(for: .waiting) == nil)
+        let state = session.signalState(elapsed: 10)
+        #expect(state == .silent)
+        let report = try #require(session.tapReport(for: state))
+        let warning = try #require(report.warning)
+        #expect(warning.contains("no signal on the tap, but on device input channels 1"))
+        #expect(warning.contains("--tap-buffer <n>"))
+    }
+
+    @Test func aSilentWaitWithNothingActiveHasNoSpecificWarning() throws {
+        let backend = FakeBackend()
+        let session = RouteSession(backend: backend, plan: plan)
+        try session.start()
+        let report = try #require(session.tapReport(for: .silent))
+        #expect(report.warning == nil)
+    }
+
+    @Test func theSignalPathStillReports() throws {
+        let backend = FakeBackend()
+        let session = RouteSession(backend: backend, plan: plan)
+        try session.start()
+        backend.setSignal(true)
+        backend.setActive([32, 33])
+        let report = try #require(session.tapReport(for: session.signalState(elapsed: 0)))
+        #expect(report.warning == nil)
+        session.stop()
+        #expect(session.tapReport(for: .present) == nil, "stopped")
+    }
+
     // MARK: Silence
 
     @Test func signalStateFollowsTheBackend() throws {

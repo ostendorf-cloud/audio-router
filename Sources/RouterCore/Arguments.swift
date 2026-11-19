@@ -52,6 +52,9 @@ public enum ArgumentParser {
         --tap-buffer forces the index (from 0) of the first tap buffer in the aggregate's input list.
         Without it the tap stream is found by the stream ids, or the route is refused when that fails.
         --meter prints the peak and RMS level of the tap and of the output in dBFS once a second to stdout.
+        The route prints a warning to stderr when the signal sits outside --source-channels or the tap
+        shows none while a device input is active, naming the buffer and how it was picked. It does not
+        check the gain, use --meter for that.
         """
 
     /// Parses the arguments after the program name.

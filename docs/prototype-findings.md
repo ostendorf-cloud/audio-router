@@ -386,6 +386,14 @@ signal line and, when it looks wrong, a line starting with `warning: tap buffer`
 the route. A multichannel app is legitimate and noise on a device input counts as activity, so a
 refusal would be wrong.
 
+The check runs about two seconds after the first signal. When no routed channel ever carries a
+sample, it runs once after 10 seconds, next to the generic no audio warning. That is the case of a
+wrong buffer that is silent on the pair. The warning goes to stderr and the signal line to stdout,
+so use `2>&1` when both go to a log.
+
+The warning does not detect the 1/16 gain loss of a stereo mixdown tap (see the measurement
+above). It checks where the signal sits, not how loud it is. Check the gain with `--meter`.
+
 The warning fires in two cases:
 
 - The tap side of the signal line shows channels outside `--source-channels` (default 1,2). Either
@@ -396,7 +404,8 @@ The warning fires in two cases:
 It names the picked buffer, how it was chosen (`stream id diff`, `--tap-buffer`, or by layout) and
 the retry flags. How to read it:
 
-- Signal line `tap 1,2` and no warning: the pick matches the source pair. This is the X-USB result.
+- Signal line `signal on tap channels: 1,2 | on device input channels (noise counts): ...` and no
+  warning: the pick matches the source pair. This is the X-USB result.
 - Warning with tap channels outside the pair: look at the channels it names. If they are the pair
   the app should use, retry with `--source-channels <a>,<b>`. If the tap side looks like device
   noise (for example `1,2,3,31,32`), the buffer is wrong: retry with `--tap-buffer <n>` for each
@@ -449,7 +458,7 @@ swift build -c release
 
    ```sh
    .build/release/audio-router-proto route --bundle-id <id> \
-     --device <x-usb uid> --channels 1,2 --meter | tee drift.log
+     --device <x-usb uid> --channels 1,2 --meter 2>&1 | tee drift.log
    ```
 
 | Run | Signal line | Warning printed (yes or no, text) | `tap peak` | `tap rms` | Notes |

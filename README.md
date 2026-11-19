@@ -21,6 +21,9 @@ swift build -c release
 - `devices` lists output devices with uid, name and channel count.
 - `apps` lists audio processes, helper processes grouped under their parent app.
 - `route` mutes the app on its normal output and plays it on the channel pair until Ctrl-C.
+- `route` prints a warning to stderr when the signal sits outside `--source-channels` or the tap
+  shows none while a device input is active. It names the picked tap buffer and how it was picked.
+  It does not check the gain, use `--meter` for that. Use `2>&1` to log both streams.
 
 ## License
 
