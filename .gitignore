@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj
+xcuserdata/
+
+# Agents
+.claude/settings.local.json
+.claude/.cc-writes/
+.claude/worktrees/

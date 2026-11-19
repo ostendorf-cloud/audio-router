@@ -1,6 +1,7 @@
 # Audio router for macOS
 
-Status: draft for review. Nothing is built. Items marked (unverified) rest on memory and need the prototype to prove them.
+Status: draft for review. The phase 1 prototype exists. API names and signatures are checked against the
+macOS 27 SDK headers. Items marked (unverified) are runtime behaviour that only a run on a real Mac proves.
 
 ## Problem
 
@@ -28,13 +29,27 @@ Status: draft for review. Nothing is built. Items marked (unverified) rest on me
 
 ## Approach
 
-### Audio path (unverified, from memory of the macOS 14.2 Core Audio API)
+### Audio path (API names checked against the macOS 27 SDK headers, runtime behaviour unverified)
 
-- One process tap per group of apps (`AudioHardwareCreateProcessTap`), set to muted so the app does not also play normally.
-- One private aggregate device per target device: the target as clock master, the taps as sub taps, drift correction on.
-- One IOProc copies each group's tap buffers onto its configured output channels.
-- Apps are matched by bundle id, helper processes included, never by PID.
+- One process tap per group of apps: `AudioHardwareCreateProcessTap(CATapDescription*, AudioObjectID*)`,
+  available from macOS 14.2 (`AudioHardwareTapping.h`).
+  The description is a stereo mixdown (`initStereoMixdownOfProcesses:`), so one tap carries one channel pair.
+  `muteBehavior = CATapMuted` silences the app on its normal output.
+  `isPrivate` hides the tap from other processes.
+- A tap takes process object ids (`AudioObjectID`), not bundle ids.
+  The ids come from `kAudioHardwarePropertyProcessObjectList`, the bundle id of each from `kAudioProcessPropertyBundleID`.
+  Matching by bundle id, helper processes included and never by PID, is therefore done by the router.
+- One private aggregate device per target device (`AudioHardwareCreateAggregateDevice`, `kAudioAggregateDeviceIsPrivateKey`).
+  The target is the main sub device (`kAudioAggregateDeviceMainSubDeviceKey`) and the time source.
+  The clock device key is a separate thing and is not used.
+  The tap joins through `kAudioAggregateDeviceTapListKey`, listed by the tap's UUID (`CATapDescription.uuid`).
+  Drift compensation is a key of each sub tap (`kAudioSubTapDriftCompensationKey`).
+- One IOProc on the aggregate (`AudioDeviceCreateIOProcID`, `AudioDeviceStart`) copies each group's tap input onto its
+  configured output channels.
+  Core Audio presents the data as 32 bit float and hands over zeroed output buffers (`AudioHardware.h`).
 - A process watcher adds a new matching process to its group's tap.
+  From macOS 26 `CATapDescription` has `bundleIDs` and `processRestoreEnabled`, which may replace the watcher there.
+  The 14.2 floor still needs the watcher. Open: whether `bundleIDs` also covers helper processes.
 
 ### Components
 
@@ -47,7 +62,9 @@ Status: draft for review. Nothing is built. Items marked (unverified) rest on me
 ### Boundaries
 
 - The GUI edits the profile, the core reads it. The core runs without the GUI.
-- Needs the system audio capture permission, with its usage string in `Info.plist`.
+- Needs the system audio capture permission, with its usage string under `NSAudioCaptureUsageDescription` in `Info.plist`.
+  The key is not in the SDK headers. It was read from the `Info.plist` of apps installed on the development Mac.
+  The command line prototype embeds it in the binary, see `docs/prototype-findings.md`.
 - No kernel code, no driver, no admin install in phase 1.
 
 ### Phases
