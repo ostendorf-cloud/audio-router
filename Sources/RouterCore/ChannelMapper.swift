@@ -62,11 +62,48 @@ public enum ChannelMapper {
         interleaved: Bool,
         deviceName: String = "the output device"
     ) throws -> Range<Int> {
+        try chooseTapBuffers(
+            in: input, tapChannels: tapChannels, interleaved: interleaved, deviceName: deviceName
+        ).range
+    }
+
+    /// Like `tapBuffers`, with two more ways to decide and the way reported.
+    ///
+    /// - `override` names the first tap buffer. The shape found there must equal the tap shape.
+    /// - `deviceInputBuffers` is the input layout of the target device read from the device
+    ///   itself. When the tap shape appears more than once, the last match is taken only if the
+    ///   whole list is exactly the device inputs followed by the tap shape. That order was
+    ///   measured on one device (device inputs first, tap last). No header defines it, so the
+    ///   result says `lastByMeasuredOrder` and the caller prints it. Without
+    ///   `deviceInputBuffers` an ambiguous shape is refused, as before.
+    ///
+    /// Headers checked for a provable way to name the tap stream (AudioHardware.h,
+    /// AudioHardwareBase.h): `kAudioDevicePropertyIOProcStreamUsage` switches streams on and off by
+    /// index but does not say which index is the tap. `kAudioAggregateDevicePropertyTapList`
+    /// lists tap uids, not streams. No header says that a tap's stream is owned by the tap
+    /// object. So no documented property names the tap stream.
+    public static func chooseTapBuffers(
+        in input: ChannelLayout,
+        tapChannels: Int,
+        interleaved: Bool,
+        deviceName: String = "the output device",
+        deviceInputBuffers: [Int]? = nil,
+        override: Int? = nil
+    ) throws -> (range: Range<Int>, choice: TapBufferChoice) {
         guard tapChannels > 0 else {
             throw RouterError.unsupportedFormat("the tap has no channels")
         }
         let shape = interleaved ? [tapChannels] : Array(repeating: 1, count: tapChannels)
         let buffers = input.channelsPerBuffer
+        if let override {
+            guard override >= 0, override + shape.count <= buffers.count,
+                Array(buffers[override..<override + shape.count]) == shape
+            else {
+                throw RouterError.unsupportedFormat(
+                    "--tap-buffer \(override) does not name a buffer of the tap shape \(shape), buffers are \(buffers)")
+            }
+            return (override..<override + shape.count, .override)
+        }
         var matches: [Range<Int>] = []
         var start = 0
         while start + shape.count <= buffers.count {
@@ -79,20 +116,24 @@ public enum ChannelMapper {
             throw RouterError.unsupportedFormat(
                 "no input buffer of the aggregate device has the tap shape \(shape), buffers are \(buffers)")
         }
-        guard matches.count == 1 else {
+        if matches.count == 1 { return (match, .uniqueShape) }
+        // The list ending with the tap shape makes the last match the one at the end.
+        guard let last = matches.last, let deviceInputBuffers, buffers == deviceInputBuffers + shape else {
             throw RouterError.ambiguousTapStream(device: deviceName, buffers: buffers, tapShape: shape)
         }
-        return match
+        return (last, .lastByMeasuredOrder)
     }
 
     /// Builds the routes that copy the source onto the channel pair of the destination. A mono
     /// source feeds both channels. `sourceBufferOffset` is the index of the first tap buffer in
-    /// the full input list. Runs once when a route starts, never in the callback.
+    /// the full input list. `sourcePair` names the tap channels to copy, counted from 1. Runs
+    /// once when a route starts, never in the callback.
     public static func routes(
         source: ChannelLayout,
         destination: ChannelLayout,
         pair: ChannelPair,
-        sourceBufferOffset: Int = 0
+        sourceBufferOffset: Int = 0,
+        sourcePair: ChannelPair = .firstPair
     ) throws -> [ChannelRoute] {
         guard source.totalChannels > 0 else {
             throw RouterError.unsupportedFormat("the tap has no channels")
@@ -103,8 +144,13 @@ public enum ChannelMapper {
                 throw RouterError.unsupportedFormat(
                     "output channel \(destinationChannel + 1) does not exist on the device")
             }
-            guard let src = source.locate(min(offset, source.totalChannels - 1)) else {
-                throw RouterError.unsupportedFormat("the tap has no channel \(offset + 1)")
+            // A mono tap feeds both channels, but only for the default source pair.
+            let monoDuplicate = source.totalChannels == 1 && sourcePair.first == 1
+            let wanted = monoDuplicate ? 0 : sourcePair.first - 1 + offset
+            guard let src = source.locate(wanted) else {
+                throw RouterError.unsupportedFormat(
+                    "the tap has \(source.totalChannels) channels, no channel \(wanted + 1) for "
+                        + "--source-channels \(sourcePair.first),\(sourcePair.second)")
             }
             return ChannelRoute(
                 sourceBuffer: src.buffer + sourceBufferOffset,
@@ -185,6 +231,76 @@ public enum ChannelMapper {
             }
             if bits != 0 { signalSeen.pointee = 1 }
         }
+    }
+
+    /// Sets `flags[n]` to 1 for every input channel n that carried a sample that is not zero.
+    /// Channels count over all input buffers in order, buffer major. A channel past `flagCount` is
+    /// not recorded. Diagnostic only, it shows which tap channels carry the app.
+    ///
+    /// Same real time contract as `render`: raw pointers and integers, wrapping index arithmetic,
+    /// no allocation, lock, logging or reference counting.
+    static func markActive(
+        input: UnsafePointer<AudioBufferList>,
+        flags: UnsafeMutablePointer<UInt32>,
+        flagCount: Int
+    ) {
+        let header = MemoryLayout<AudioBufferList>.size - MemoryLayout<AudioBuffer>.size
+        let inputCount = Int(input.pointee.mNumberBuffers)
+        let buffers = UnsafeRawPointer(input).advanced(by: header).assumingMemoryBound(to: AudioBuffer.self)
+        let floatSize = MemoryLayout<Float>.size
+        var first = 0  // global index of channel 0 of the current buffer
+        var index = 0
+        while index < inputCount {
+            let buffer = buffers[index]
+            index &+= 1
+            let channels = Int(buffer.mNumberChannels)
+            guard channels > 0 else { continue }
+            if let data = buffer.mData {
+                let frames = Int(buffer.mDataByteSize) / (floatSize &* channels)
+                let samples = data.assumingMemoryBound(to: Float.self)
+                var channel = 0
+                while channel < channels {
+                    let slot = first &+ channel
+                    if slot < flagCount && flags[slot] == 0 {
+                        var frame = 0
+                        while frame < frames {
+                            if samples[frame &* channels &+ channel].bitPattern << 1 != 0 {
+                                flags[slot] = 1
+                                break
+                            }
+                            frame &+= 1
+                        }
+                    }
+                    channel &+= 1
+                }
+            }
+            first &+= channels
+        }
+    }
+
+    /// Splits the active input channels into tap channels and device input channels, both counted
+    /// from 1 inside their group. Control thread only.
+    public static func activity(
+        active: [Int], inputBuffers: [Int], tapBuffers: Range<Int>
+    ) -> (tap: [Int], device: [Int]) {
+        var tap: [Int] = []
+        var device: [Int] = []
+        var first = 0
+        var tapFirst = 0
+        var deviceFirst = 0
+        for (buffer, count) in inputBuffers.enumerated() {
+            let isTap = tapBuffers.contains(buffer)
+            for channel in 0..<count where active.contains(first + channel) {
+                if isTap {
+                    tap.append(tapFirst + channel + 1)
+                } else {
+                    device.append(deviceFirst + channel + 1)
+                }
+            }
+            first += count
+            if isTap { tapFirst += count } else { deviceFirst += count }
+        }
+        return (tap, device)
     }
 
     /// Accumulates the level of the tap samples that `render` read and of the samples it wrote.

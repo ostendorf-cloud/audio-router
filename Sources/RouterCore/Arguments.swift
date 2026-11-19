@@ -8,12 +8,23 @@ public struct RouteArguments: Equatable, Sendable {
     public let channels: ChannelPair
     /// Print the levels of the tap and of the output once a second.
     public let meter: Bool
+    public let tapMode: TapMode
+    /// The pair of tap channels that carries the app, counted from 1.
+    public let sourceChannels: ChannelPair
+    /// Index of the first tap buffer in the aggregate's input list, counted from 0. Nil: detect.
+    public let tapBuffer: Int?
 
-    public init(bundleID: String, deviceUID: String, channels: ChannelPair, meter: Bool = false) {
+    public init(
+        bundleID: String, deviceUID: String, channels: ChannelPair, meter: Bool = false,
+        tapMode: TapMode = .stereoMixdown, sourceChannels: ChannelPair = .firstPair, tapBuffer: Int? = nil
+    ) {
         self.bundleID = bundleID
         self.deviceUID = deviceUID
         self.channels = channels
         self.meter = meter
+        self.tapMode = tapMode
+        self.sourceChannels = sourceChannels
+        self.tapBuffer = tapBuffer
     }
 }
 
@@ -30,8 +41,14 @@ public enum ArgumentParser {
           audio-router-proto devices
           audio-router-proto apps
           audio-router-proto route --bundle-id <id> --device <uid> --channels <n>,<n+1> [--meter]
+                                   [--tap-mode stereo-mixdown|device-stream]
+                                   [--source-channels <n>,<n+1>] [--tap-buffer <n>]
 
         Channels count from 1. The pair must be two adjacent channels, for example 3,4.
+        --tap-mode picks how the tap is made. The default is stereo-mixdown. device-stream taps the
+        output stream 0 of the device without a mixdown, see docs/prototype-findings.md section 9.
+        --source-channels names the tap channels that carry the app, default 1,2.
+        --tap-buffer forces the index (from 0) of the first tap buffer in the aggregate's input list.
         --meter prints the peak and RMS level of the tap and of the output in dBFS once a second to stdout.
         """
 
@@ -59,18 +76,35 @@ public enum ArgumentParser {
 
     /// Parses `n,n+1`. Both values are integers, the second is the first plus one, the first is
     /// at least 1.
-    public static func parseChannels(_ text: String) throws -> ChannelPair {
+    public static func parseChannels(_ text: String, flag: String = "--channels") throws -> ChannelPair {
         let parts = text.split(separator: ",", omittingEmptySubsequences: false)
         guard parts.count == 2, let first = Int(parts[0]), let second = Int(parts[1]) else {
-            throw RouterError.usage("--channels takes two integers like 3,4, got \(text).")
+            throw RouterError.usage("\(flag) takes two integers like 3,4, got \(text).")
         }
         guard first >= 1 else {
-            throw RouterError.usage("--channels counts from 1, got \(first).")
+            throw RouterError.usage("\(flag) counts from 1, got \(first).")
         }
         guard second == first + 1 else {
-            throw RouterError.usage("--channels must be two adjacent channels like 3,4, got \(text).")
+            throw RouterError.usage("\(flag) must be two adjacent channels like 3,4, got \(text).")
         }
-        return try ChannelPair(first: first)
+        return try ChannelPair(first: first, flag: flag)
+    }
+
+    /// Parses the value of `--tap-mode`.
+    public static func parseTapMode(_ text: String) throws -> TapMode {
+        guard let mode = TapMode(rawValue: text) else {
+            let names = TapMode.allCases.map(\.rawValue).joined(separator: ", ")
+            throw RouterError.usage("--tap-mode takes one of \(names), got \(text).")
+        }
+        return mode
+    }
+
+    /// Parses the value of `--tap-buffer`, a buffer index from 0.
+    public static func parseTapBuffer(_ text: String) throws -> Int {
+        guard let index = Int(text), index >= 0, index <= 65_536 else {
+            throw RouterError.usage("--tap-buffer takes a buffer index from 0, got \(text).")
+        }
+        return index
     }
 
     private static func rejectExtra(_ rest: [String], command: String) throws {
@@ -78,6 +112,10 @@ public enum ArgumentParser {
             throw RouterError.usage("The \(command) command takes no arguments, got \(extra).")
         }
     }
+
+    private static let knownFlags: Set<String> = [
+        "--bundle-id", "--device", "--channels", "--tap-mode", "--source-channels", "--tap-buffer",
+    ]
 
     private static func parseRoute(_ arguments: [String]) throws -> RouteArguments {
         var values: [String: String] = [:]
@@ -91,7 +129,7 @@ public enum ArgumentParser {
                 index += 1
                 continue
             }
-            guard ["--bundle-id", "--device", "--channels"].contains(flag) else {
+            guard knownFlags.contains(flag) else {
                 throw RouterError.usage("Unknown option \(flag).\n\(usage)")
             }
             guard index + 1 < arguments.count else {
@@ -115,7 +153,11 @@ public enum ArgumentParser {
             bundleID: bundleID,
             deviceUID: deviceUID,
             channels: try parseChannels(values["--channels", default: ""]),
-            meter: meter
+            meter: meter,
+            tapMode: try values["--tap-mode"].map(parseTapMode) ?? .stereoMixdown,
+            sourceChannels: try values["--source-channels"].map { try parseChannels($0, flag: "--source-channels") }
+                ?? .firstPair,
+            tapBuffer: try values["--tap-buffer"].map(parseTapBuffer)
         )
     }
 }

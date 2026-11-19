@@ -178,36 +178,131 @@ otool -tV .build/release/audio-router-proto \
 Reported by the owner from the first run (X32 over USB, `route --bundle-id com.spotify.client`
 to channels 1,2 and 3,4): the routed app is clearly quieter than before routing, on both pairs,
 with the X32 strips unchanged. The X32 channel meters read about -21 dB on the USB returns.
-The cause is not known. `ChannelMapper.render` copies samples at unity gain (read in the code),
-and `CATapDescription.h` says nothing about the gain of a stereo mixdown.
+The cause was not known at that point. `ChannelMapper.render` copies samples at unity gain (read
+in the code), and `CATapDescription.h` says nothing about the gain of a stereo mixdown. The
+measurement below found it.
 
 Reported by the owner from later runs with `--meter` (X32, Spotify and Chrome, both with the X-USB
 as macOS default output): layout `[32, 2]` with the tap in buffer 1, all rates 48000 Hz, `tap`
 equal to `out`, and a `tap` peak of only about -30 to -33 dBFS (rms about -43 dBFS) for both apps.
 So the loss happens before the IO proc, and it is the same for two different apps.
 
-Hypothesis, not measured. The tap is created with `stereoMixdownOfProcesses`. The header describes
-`mixdown` as "a mono or stereo mix of the tapped device's channels" (`CATapDescription.h`, the
-`mixdown` property) and gives no gain. The apps play to a device with 32 channels. If the mixdown
-averages 32 channels into 2, that is 16 stereo pairs and a gain of 1/16, which is -24 dB. That would
-explain the observed level. The same mixdown on a stereo output device would be unity.
+### Measured: the stereo mixdown tap loses 24.1 dB
 
-Prediction, so the hypothesis can fail. Play `sine-1khz-minus6dbfs.wav` (a 1 kHz sine at -6 dBFS,
-not stored in this repository) in QuickTime Player at full app volume:
+Measured by the owner on macOS 27 with the X32 over USB (uid
+`AppleUSBAudioEngine:BEHRINGER:X-USB:21B4A92B:1,2`, 32 channels, 48 kHz, default output of macOS).
+QuickTime Player played a 1 kHz sine at -6 dBFS (`sine-1khz-minus6dbfs.wav`, not stored in this
+repository). `route --meter` printed `tap peak` -30.1 dBFS and `tap rms` -33.1 dBFS. That is
+-24.1 dB, a division by 16: 32 channels as 16 pairs. The copy to the output is unity (`tap` equals
+`out`). The aggregate layout was input buffers `[32, 2]` and output buffers `[32]`. The tap was in
+input buffer 1, which was found by measurement. No header defines that order.
 
-| Default output of macOS | `tap peak` if the tap is unity | `tap peak` if the mixdown divides by 16 |
-| ----------------------- | ------------------------------ | --------------------------------------- |
-| X-USB (32 channels) | about -6 dBFS | about -30 dBFS |
-| a stereo device, for example the MacBook speakers | about -6 dBFS | about -6 dBFS |
+Why: `CATapDescription(stereoMixdownOfProcesses:)` makes a description with `isMixdown` true and
+`isMono` false (checked by creating the description in a scratch Swift file, no tap, no hardware).
+`CATapDescription.h` says a mixdown is "a mono or stereo mix of the tapped device's channels" and
+gives no gain. No property of `CATapDescription` sets a gain. `mono` switches to one channel,
+`exclusive` inverts the process list into "all except", and `mixdown` is a read and write flag with
+no further text. So the loss cannot be tuned in the description. The measured 1/16 is consistent
+with a mix of all device channels that divides by the number of pairs. That reading is a
+hypothesis, only the 24.1 dB is measured. A stereo device is expected to be unity under the same
+hypothesis, and the MacBook speaker run below tests that.
 
-A result of -6 on the X-USB refutes the hypothesis. A result of about -30 on the X-USB and -6 on
-the stereo device supports it. Any other result means another cause, use the candidate table below.
+### Fix: the device stream tap
 
-Planned fix path, not implemented. `CATapDescription(processes:deviceUID:stream:)`
-(`CATapDescription.h`, "the format of the tap will match the format of this stream") taps one
-stream of the device instead of a mixdown. On the X32 that would give a 32 channel tap. Then
-`ChannelMapper.tapBuffers` finds a 32 channel tap next to the 32 device inputs and refuses it as
-ambiguous. So the fix needs a design change in how the tap is told from device inputs.
+`CATapDescription(processes:deviceUID:stream:)` taps one output stream of the device. The Swift
+overlay signature is `init(processes: [AudioObjectID], deviceUID: String, stream: UInt)`, proven by
+compiling a scratch file with `swiftc` against the SDK (the header calls it
+`initWithProcesses:andDeviceUID:withStream:`). The resulting description has `isMixdown` false,
+`deviceUID` and `stream` set.
+
+What the header says (`CATapDescription.h`, the method comment and the `stream` property):
+
+- "Mix all given process audio streams destined for the selected device stream".
+- `stream` is "NSInteger that represents the index of the stream on the device whose audio will be
+  captured. The format of the tap will match the format of this stream."
+- The property `stream` says "the index of the hardware stream".
+
+What the header does not say, so it is not verified:
+
+- Which scope the index counts in. The tool uses index 0 and the X32 has one output stream.
+- That the tap then has 32 channels. The format rule implies it, the first run must show it in
+  the `tap format` line.
+- That the app's stereo lands on tap channels 1 and 2. A process plays on the device's default
+  channel pair, but no header text says so. The route prints the tap channels that carried signal
+  two seconds after the first signal, and `--source-channels <n>,<n+1>` (default 1,2) names the
+  pair to copy.
+- That the gain is unity. The header says nothing about gain, in either mode.
+
+So the header evidence for unity is not solid. The default stays `stereo-mixdown` and the owner
+flips it after the measurement below. Both modes run with the same command:
+
+```sh
+.build/release/audio-router-proto route --bundle-id <id> --device <uid> --channels 1,2 --meter --tap-mode stereo-mixdown
+.build/release/audio-router-proto route --bundle-id <id> --device <uid> --channels 1,2 --meter --tap-mode device-stream
+```
+
+### Telling the tap from the device inputs
+
+A 32 channel tap next to 32 device inputs has the same buffer shape, so the shape alone is
+ambiguous. Checked in the headers, none names the tap's stream:
+
+- `kAudioDevicePropertyIOProcStreamUsage` (`AudioHardware.h`) switches the streams an IO proc
+  receives on and off by index, an unused stream shows as a NULL buffer pointer. It needs the
+  index of the tap stream as input, it does not name it.
+- `kAudioAggregateDevicePropertyTapList` lists the tap uids and `kAudioSubTapUIDKey` is the key of
+  a tap in the description. Neither lists streams.
+- `kAudioAggregateDevicePropertyFullSubDeviceList` says the order of the sub devices decides the
+  order of the streams. It says nothing about taps.
+- `kAudioObjectPropertyOwnedObjects` and `kAudioObjectPropertyOwner` exist for every object. No
+  header says that the stream of a tap is owned by the tap. Not tried on hardware.
+
+So there is no documented way to name the tap stream, and nothing is claimed as proven. What the
+code does instead (`ChannelMapper.chooseTapBuffers`):
+
+1. One buffer of the tap shape: that one. As before.
+2. Several buffers of the tap shape: the last one, but only when the aggregate's input list is
+   exactly the device's own input buffers (read from the device itself) followed by the tap shape.
+   This rests on the order measured on the X32, device inputs first and tap last. It is printed at
+   start (`tap buffer: ... by the order measured on one device`).
+3. Anything else with several matches: refused, as before.
+4. `--tap-buffer <n>` forces the first tap buffer (counted from 0). The shape found there must
+   equal the tap shape, otherwise the route refuses. It is printed as `named by --tap-buffer`.
+
+Remaining risk: if another device puts its streams after the tap, rule 2 would copy a device input
+to the output. The route prints which channels carried signal, split into tap channels and device
+input channels (`signal on tap channels: ... | on device input channels: ...`). With the sine
+playing, the tap channels must be the app's pair and nothing else. If the device input channels
+list shows the signal's channels instead, stop and use `--tap-buffer`. This check is a diagnostic
+for the owner, the tool does not refuse on it.
+
+Results to fill in, one row per run. Use release builds, QuickTime Player at full app volume, the
+system volume unchanged, and the sine files from the earlier steps. Expected on a unity tap: `tap
+peak` -6.0 and -20.0 dBFS (within 0.2 dB). Expected on the old mixdown on the X-USB: about -30.1
+and -44.1 dBFS.
+
+| Default output of macOS | `--tap-mode` | Sine | `tap format` line | Tap buffer line | Signal line | `tap peak` | `tap rms` | Unity within 0.2 dB |
+| ----------------------- | ------------ | ---- | ----------------- | --------------- | ----------- | ---------- | --------- | ------------------- |
+| X-USB (32 channels) | stereo-mixdown | -6 dBFS | | | | | | |
+| X-USB (32 channels) | stereo-mixdown | -20 dBFS | | | | | | |
+| X-USB (32 channels) | device-stream | -6 dBFS | | | | | | |
+| X-USB (32 channels) | device-stream | -20 dBFS | | | | | | |
+| MacBook speakers (2 channels) | stereo-mixdown | -6 dBFS | | | | | | |
+| MacBook speakers (2 channels) | stereo-mixdown | -20 dBFS | | | | | | |
+| MacBook speakers (2 channels) | device-stream | -6 dBFS | | | | | | |
+| MacBook speakers (2 channels) | device-stream | -20 dBFS | | | | | | |
+
+- Does Spotify's stereo land on tap channels 1,2 in `device-stream` mode (signal line):
+- Does a device input channel show signal while the app plays (it must not):
+- Which mode is unity on the X-USB, and does it hold on the MacBook speakers:
+- If `stereo-mixdown` is not unity and `device-stream` is, flip the default in `Arguments.swift`
+  (`RouteArguments.init` and `parseRoute`) and in the usage text.
+
+How to run the table. QuickTime Player cannot read from `/private/tmp`, so copy the sine files to
+the Desktop first:
+
+```sh
+cp <tones dir>/sine-1khz-minus6dbfs.wav <tones dir>/sine-1khz-minus20dbfs.wav ~/Desktop/
+```
 
 Calibration procedure:
 

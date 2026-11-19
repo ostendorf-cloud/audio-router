@@ -106,20 +106,39 @@ final class FakeBackend: AudioRoutingBackend, @unchecked Sendable {
         }
     }
 
-    func createTap(processes: [ObjectID], name: String) throws -> TapInfo {
+    func createTap(processes: [ObjectID], name: String, mode: TapMode, deviceUID: String) throws -> TapInfo {
+        lock.withLock { tapRequest = (mode, deviceUID) }
         try record("createTap \(processes.map(String.init).joined(separator: ","))")
-        return TapInfo(objectID: 10, uid: "tap-uid", channelCount: 2, isInterleaved: true)
+        return TapInfo(objectID: 10, uid: "tap-uid", channelCount: 2, isInterleaved: true, mode: mode)
     }
+
+    /// The mode and device uid of the last `createTap`.
+    var tapRequested: (mode: TapMode, deviceUID: String)? { lock.withLock { tapRequest } }
+    private var tapRequest: (mode: TapMode, deviceUID: String)?
+
+    /// The source channels and the tap buffer override of the last `startIO`.
+    var ioRequested: (source: ChannelPair, tapBuffer: Int?)? { lock.withLock { ioRequest } }
+    private var ioRequest: (source: ChannelPair, tapBuffer: Int?)?
+
+    /// What `activeInputChannels` returns.
+    func setActive(_ channels: [Int]) { lock.withLock { active = channels } }
+    private var active: [Int] = []
+
+    func activeInputChannels(handle: IOHandle) -> [Int]? { lock.withLock { active } }
 
     func createAggregate(deviceUID: String, tap: TapInfo) throws -> ObjectID {
         try record("createAggregate \(deviceUID) \(tap.uid)")
         return 20
     }
 
-    func startIO(aggregate: ObjectID, tap: TapInfo, device: OutputDevice, channels: ChannelPair, meter: Bool)
-        throws -> IOHandle
-    {
-        lock.withLock { meterFlag = meter }
+    func startIO(
+        aggregate: ObjectID, tap: TapInfo, device: OutputDevice, channels: ChannelPair,
+        sourceChannels: ChannelPair, tapBuffer: Int?, meter: Bool
+    ) throws -> IOHandle {
+        lock.withLock {
+            meterFlag = meter
+            ioRequest = (sourceChannels, tapBuffer)
+        }
         try record("startIO \(aggregate) \(channels.first),\(channels.second)")
         return IOHandle(rawValue: 30)
     }

@@ -32,10 +32,15 @@ The prototype binary:
 ```sh
 .build/debug/audio-router-proto devices
 .build/debug/audio-router-proto apps
-.build/debug/audio-router-proto route --bundle-id <id> --device <uid> --channels <n>,<n+1> [--meter]
+.build/debug/audio-router-proto route --bundle-id <id> --device <uid> --channels <n>,<n+1> [--meter] \
+  [--tap-mode stereo-mixdown|device-stream] [--source-channels <n>,<n+1>] [--tap-buffer <n>]
 ```
 
 Channels count from 1 and must be two adjacent channels.
+`--tap-mode device-stream` taps output stream 0 of the device without the stereo mixdown, which loses 24 dB on a
+32 channel device. The default stays `stereo-mixdown` until the owner measured unity, see `docs/prototype-findings.md`
+section 9. `--source-channels` names the tap channels that carry the app (default 1,2).
+`--tap-buffer` forces the tap buffer (from 0).
 `--meter` prints peak and RMS in dBFS of the tap and the output to stdout once a second.
 `ChannelMapper.measure` runs next to `render` in the IO proc with the same real time contract.
 
@@ -51,8 +56,9 @@ Channels count from 1 and must be two adjacent channels.
   second `stop` returns only after the first teardown finished.
 - The tap uses `mutedWhenTapped`, so a stopped IO proc lets the app play again. Do not switch to `muted`
   without a new decision in the concept.
-- The target device is a sub device of the aggregate. `ChannelMapper.tapBuffers` finds the tap among the
-  device inputs and refuses when that is ambiguous. Keep that check.
+- The target device is a sub device of the aggregate. `ChannelMapper.chooseTapBuffers` finds the tap among the
+  device inputs and refuses when that is ambiguous. Keep that check. The measured order (device inputs first, tap
+  last) is the only evidence for the order rule, no header defines it. Do not widen the rule.
 - `SIGTSTP` is ignored on purpose, a suspended process cannot tear down.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.

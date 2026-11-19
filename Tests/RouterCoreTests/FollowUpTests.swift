@@ -278,6 +278,7 @@ struct MeterFormattingTests {
                 "aggregate output buffers: [32]",
                 "aggregate output streams: 48000 Hz, 32 channels, not interleaved",
                 "sample rate: tap 48000 Hz, aggregate 48000 Hz, device 44100.5 Hz",
+                "tap mode: stereo-mixdown, source channels 1,2, tap buffer: the only buffer of the tap shape",
             ])
     }
 

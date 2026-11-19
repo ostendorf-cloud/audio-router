@@ -117,6 +117,15 @@ struct AudioRouterProto {
                 break
             case .present:
                 timer.cancel()
+                // Two seconds later, name the channels that carried signal. It shows where the
+                // app sits in the tap and whether a device input is hot.
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
+                    guard let active = session.activeInputChannels(), let info = session.routeInfo() else { return }
+                    let found = ChannelMapper.activity(
+                        active: active, inputBuffers: info.inputBuffers, tapBuffers: info.tapBuffers)
+                    let line = Formatting.activity(tap: found.tap, device: found.device)
+                    Diagnostics.write(line + "\n", to: STDOUT_FILENO)
+                }
             case .silent:
                 timer.cancel()
                 Diagnostics.write(

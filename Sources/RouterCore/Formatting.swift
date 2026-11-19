@@ -65,7 +65,31 @@ public enum Formatting {
             "aggregate output streams: " + info.outputStreams.map(stream).joined(separator: "; "),
             "sample rate: tap \(hertz(info.tap.sampleRate)), aggregate \(hertz(info.aggregateSampleRate)), "
                 + "device \(hertz(info.deviceSampleRate))",
+            "tap mode: \(info.tapMode.rawValue), source channels \(info.sourceChannels.first),"
+                + "\(info.sourceChannels.second), tap buffer: \(choice(info.tapBufferChoice))",
         ]
+    }
+
+    static func choice(_ choice: TapBufferChoice) -> String {
+        switch choice {
+        case .uniqueShape:
+            return "the only buffer of the tap shape"
+        case .lastByMeasuredOrder:
+            return "the last of several buffers of the tap shape, by the order measured on one device "
+                + "(device inputs first, tap last), which no header defines. Check the activity line "
+                + "or force the buffer with --tap-buffer"
+        case .override:
+            return "named by --tap-buffer"
+        }
+    }
+
+    /// One line: the channels that carried signal, tap channels and device input channels, each
+    /// counted from 1 inside their group.
+    public static func activity(tap: [Int], device: [Int]) -> String {
+        func list(_ channels: [Int]) -> String {
+            channels.isEmpty ? "none" : channels.map(String.init).joined(separator: ",")
+        }
+        return "signal on tap channels: \(list(tap)) | on device input channels: \(list(device))"
     }
 
     /// Left aligned columns separated by two spaces, no trailing spaces.
