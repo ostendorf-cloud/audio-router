@@ -130,8 +130,8 @@ an X32 with 32 inputs, and make sure no input signal reaches the output.
   message lists the buffers when it is ambiguous):
 - Tap format as printed (`tap format:` line, interleaved or not):
 - Did `route` start, or did it refuse with "Cannot tell the tap from the input channels":
-  Reported by the owner from the first run, X32 over USB with 32 channels: it started, so the
-  shape check passed. The layout itself was not printed yet, take it from the next run.
+  Reported by the owner, X32 over USB with 32 channels: it started, so the shape check passed.
+  The layout printed was `[32, 2]` with the tap in buffer 1.
 - With a signal on the device inputs and silence in the app: is the routed output silent:
 - With a device whose input is one stereo stream (same shape as the tap, layout `[2, 2]`): refused
   as expected, the message names the device and the layout. Phase 1 does not handle this case,
@@ -181,8 +181,60 @@ with the X32 strips unchanged. The X32 channel meters read about -21 dB on the U
 The cause is not known. `ChannelMapper.render` copies samples at unity gain (read in the code),
 and `CATapDescription.h` says nothing about the gain of a stereo mixdown.
 
-Measurement with the meter. Use release builds. The meter prints to stdout once a second, the
+Reported by the owner from later runs with `--meter` (X32, Spotify and Chrome, both with the X-USB
+as macOS default output): layout `[32, 2]` with the tap in buffer 1, all rates 48000 Hz, `tap`
+equal to `out`, and a `tap` peak of only about -30 to -33 dBFS (rms about -43 dBFS) for both apps.
+So the loss happens before the IO proc, and it is the same for two different apps.
+
+Hypothesis, not measured. The tap is created with `stereoMixdownOfProcesses`. The header describes
+`mixdown` as "a mono or stereo mix of the tapped device's channels" (`CATapDescription.h`, the
+`mixdown` property) and gives no gain. The apps play to a device with 32 channels. If the mixdown
+averages 32 channels into 2, that is 16 stereo pairs and a gain of 1/16, which is -24 dB. That would
+explain the observed level. The same mixdown on a stereo output device would be unity.
+
+Prediction, so the hypothesis can fail. Play `sine-1khz-minus6dbfs.wav` (a 1 kHz sine at -6 dBFS,
+not stored in this repository) in QuickTime Player at full app volume:
+
+| Default output of macOS | `tap peak` if the tap is unity | `tap peak` if the mixdown divides by 16 |
+| ----------------------- | ------------------------------ | --------------------------------------- |
+| X-USB (32 channels) | about -6 dBFS | about -30 dBFS |
+| a stereo device, for example the MacBook speakers | about -6 dBFS | about -6 dBFS |
+
+A result of -6 on the X-USB refutes the hypothesis. A result of about -30 on the X-USB and -6 on
+the stereo device supports it. Any other result means another cause, use the candidate table below.
+
+Planned fix path, not implemented. `CATapDescription(processes:deviceUID:stream:)`
+(`CATapDescription.h`, "the format of the tap will match the format of this stream") taps one
+stream of the device instead of a mixdown. On the X32 that would give a 32 channel tap. Then
+`ChannelMapper.tapBuffers` finds a 32 channel tap next to the 32 device inputs and refuses it as
+ambiguous. So the fix needs a design change in how the tap is told from device inputs.
+
+Calibration procedure:
+
+1. `.build/release/audio-router-proto apps` with QuickTime Player playing, to get its bundle id.
+2. Set the macOS default output to the X-USB. Play `sine-1khz-minus6dbfs.wav`, then
+   `sine-1khz-minus20dbfs.wav`, each at full app volume and unchanged system volume.
+3. `.build/release/audio-router-proto route --bundle-id <id> --device <uid> --channels 1,2 --meter`
+   for each file. Expected on a unity tap: `tap peak` -6 and -20 dBFS. Expected if the mixdown
+   divides by 16: about -30 and -44 dBFS.
+4. Repeat with the macOS default output on a stereo device (MacBook speakers) and the same
+   `route` command. Expected: -6 and -20 dBFS.
+
+How to read the meter lines. Use release builds. The meter prints to stdout once a second, the
 reading covers the interval before the last one.
+
+- `out` is read back from the output buffer after the copy, with the same guards as the copy. It
+  equals `tap` by construction. It shows that the copy ran and wrote what it read. It is not an
+  independent measuring point, and `out` equal to `tap` does not say anything about the gain
+  before the IO proc.
+- `tap` merges the left and right channel. A tap with audio on one side only reads about 3 dB
+  lower in RMS. The peak hides that, so compare the peak with the X32 meter.
+- The RMS of a full scale sine prints -3.0 dBFS. Compare peak with peak.
+- `frames` counts the IO callbacks of the aggregate device on the X32 clock. It is not the sample
+  rate of the tap and it jitters with the one second timer. Average several lines.
+- The `aggregate input streams` line lists the tap stream. The owner's run printed two streams
+  for the layout `[32, 2]`, one per buffer. The headers do not say that the list on the aggregate
+  includes the tap, the run shows it does.
 
 ```sh
 .build/release/audio-router-proto route --bundle-id com.spotify.client --device <uid> --channels 1,2 --meter
@@ -202,15 +254,16 @@ reading covers the interval before the last one.
 |        |            |               |          |         |          |         |                  |                    |
 |        |            |               |          |         |          |         |                  |                    |
 
-- Printed sample rates (tap, aggregate, device) and the effective rate (`frames` per line):
-- Does `tap` equal `out` in every line (it must, the copy is unity):
+- Printed sample rates (tap, aggregate, device): reported 48000 Hz for all three.
+- Average of `frames` over several lines (the aggregate IO rate, not the tap rate):
+- Does `tap` equal `out` in every line (it does by construction, see above): reported yes.
 
 Candidate causes. None is excluded without a measurement. The table says which measurement
 separates them.
 
 | Candidate | Measurement that separates it |
 | --------- | ----------------------------- |
-| The stereo mixdown of the tap changes the level | Play the sine file of known level. If `tap peak` differs from the file level at app volume 100 percent and no normalization, the tap changes it. If it matches, the tap is not the cause. |
+| The stereo mixdown of the tap changes the level (the leading hypothesis, see the prediction above) | Play the sine file of known level. If `tap peak` differs from the file level at app volume 100 percent and no normalization, the tap changes it. Repeat with a stereo default output to see whether the 32 channels matter. If it matches, the tap is not the cause. |
 | The app applies its volume before the tap | Move the app volume slider. If `tap` follows it, the volume is applied before the tap, which is expected. Then compare with the unrouted run at the same slider position. |
 | The system output volume is applied after the tap | Change the system output volume. If the unrouted X32 meter follows it and `tap` does not, the unrouted path had a gain that the routed path lacks. |
 | Sample rate conversion or a rate mismatch | Compare the three printed rates and the effective rate. Equal rates do not exclude a converter inside the tap, but a level change from conversion alone is not expected. A mismatch would call for a run with the device set to the tap's rate. |
@@ -221,4 +274,5 @@ Reading the result:
 
 - `tap` below the file level: the loss happens before the IO proc (mixdown, app volume or rate).
 - `tap` at the file level, `out` equal to `tap`, X32 meter lower: the loss is after the IO proc, on the device side.
-- `out` below `tap`: the copy loses level, which would be a bug in `ChannelMapper`.
+- `out` below `tap`: the copy would lose level. Since `out` is read back from what the copy wrote,
+  this would point at a bug in `ChannelMapper`. `out` equal to `tap` proves nothing about the tap.

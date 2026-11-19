@@ -46,10 +46,17 @@ public struct LevelReading: Equatable, Sendable {
 
 /// What the meter saw in one interval: the tap input as the IO proc read it, and the output
 /// channels as the IO proc wrote them.
+///
+/// `output` is read back from the output buffer right after the copy, with the same guards as
+/// the copy, so it equals `input` by construction. It shows that the copy ran. It is not an
+/// independent measuring point and says nothing about the gain before the IO proc. Left and
+/// right are merged in one level.
 public struct MeterReading: Equatable, Sendable {
     public let input: LevelReading
     public let output: LevelReading
-    /// Frames per channel in the interval, so frames per second is the effective sample rate.
+    /// Frames per channel the IO proc saw in the interval. That is the IO rate of the aggregate
+    /// device on its own clock, not the sample rate of the tap, and it jitters with the timer.
+    /// Average several readings.
     public let frames: UInt64
 
     public init(input: LevelReading, output: LevelReading, frames: UInt64) {
@@ -78,7 +85,9 @@ public enum Level {
 /// memory, as with the signal flag of `ChannelMapper.render`. A callback that started before a
 /// flip can still add to the slot that was just handed to the reader, and a read can see a
 /// partly written slot. The error is at most one callback in a once a second diagnostic, which is
-/// why this is acceptable here. Do not use this scheme for anything that must be exact.
+/// why this is acceptable here. Without a memory barrier the reader's clear and flip can reach the
+/// audio thread late, so in a window of nanoseconds a line can show about double the frames.
+/// Do not use this scheme for anything that must be exact.
 struct MeterBlock: @unchecked Sendable {
     /// Input slot 0 and 1, output slot 0 and 1.
     let slots: UnsafeMutablePointer<LevelAccumulator>

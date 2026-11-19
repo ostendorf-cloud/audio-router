@@ -39,10 +39,13 @@ public final class Finisher: @unchecked Sendable {
             return
         }
         let leftovers = session.stop()  // returns after the teardown completed
+        // A stop that waited for a start which then failed must not hide that failure or exit 0.
+        let failure = session.failureOfStart().map { "error: \($0)" }
         if let message { write(message + "\n") }
+        if let failure, failure != message { write(failure + "\n") }
         for leftover in leftovers {
             write("teardown: \(leftover)\n")
         }
-        exit(leftovers.isEmpty ? code : 1)
+        exit(leftovers.isEmpty && failure == nil ? code : 1)
     }
 }

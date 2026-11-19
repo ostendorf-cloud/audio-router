@@ -33,6 +33,7 @@ public final class RouteSession: @unchecked Sendable {
     private var aggregate: ObjectID?
     private var io: IOHandle?
     private var stopped = false
+    private var startFailure: String?
 
     private let meter: Bool
 
@@ -76,11 +77,19 @@ public final class RouteSession: @unchecked Sendable {
                 aggregate: aggregate, tap: tap, device: plan.device, channels: plan.channels, meter: meter)
         } catch {
             let leftovers = teardownLocked()
-            if !leftovers.isEmpty {
-                throw RouterError.teardownFailed([String(describing: error)] + leftovers)
-            }
-            throw error
+            let thrown: Error =
+                leftovers.isEmpty ? error : RouterError.teardownFailed([String(describing: error)] + leftovers)
+            startFailure = "\(thrown)"  // set under the lock, so a stop that waited for it sees it
+            throw thrown
         }
+    }
+
+    /// The text of the error a failed `start` threw, nil if there was none. Blocks while a start
+    /// or teardown runs.
+    public func failureOfStart() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return startFailure
     }
 
     /// Tears the route down and returns the messages of the steps that failed, empty on success.

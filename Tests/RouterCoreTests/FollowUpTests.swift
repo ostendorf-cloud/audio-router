@@ -76,6 +76,43 @@ struct FinisherTests {
         #expect(backend.calls.count == teardownCalls)
     }
 
+    @Test func aStopThatWonAgainstAFailedStartStillReportsTheErrorAndExitsNonZero() {
+        let calls = Calls()
+        let (finisher, session) = make(FakeBackend(failing: ["createAggregate"]), calls)
+        var failure = ""
+        do {
+            try session.start()
+        } catch {
+            failure = "error: \(error)"
+        }
+        #expect(!failure.isEmpty)
+        finisher.finish(code: 0, message: "stopped")  // the signal handler got there first
+        #expect(calls.all == ["write stopped", "write \(failure)", "exit 1"])
+    }
+
+    @Test func theStartErrorIsNotPrintedTwiceWhenTheStartPathFinishes() {
+        let calls = Calls()
+        let (finisher, session) = make(FakeBackend(failing: ["createAggregate"]), calls)
+        var failure = ""
+        do {
+            try session.start()
+        } catch {
+            failure = "error: \(error)"
+        }
+        finisher.finish(code: 1, message: failure)
+        #expect(calls.all == ["write \(failure)", "exit 1"])
+    }
+
+    @Test func aFailedStartWithLeftoversReportsThemInTheError() {
+        let calls = Calls()
+        let (finisher, session) = make(FakeBackend(failing: ["createAggregate", "destroyTap"]), calls)
+        _ = try? session.start()
+        finisher.finish(code: 0, message: "stopped")
+        #expect(calls.all.count == 3)
+        #expect(calls.all[1].hasPrefix("write error: Teardown finished with errors"))
+        #expect(calls.all[2] == "exit 1")
+    }
+
     @Test func aFinishWithoutAStartedRouteStillExits() {
         let calls = Calls()
         let (finisher, _) = make(FakeBackend(), calls)
