@@ -1,0 +1,5 @@
+initial-version: 0.1.0
+# Below 1.0.0 a breaking change bumps the minor, so the major stays a deliberate decision.
+bump-minor-pre-major: true
+# No "files" list: Swift packages carry no version file. The version lives in the git tag and
+# in CHANGELOG.md, both written by release-me.

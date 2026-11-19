@@ -83,6 +83,22 @@ swift build -c release
 Then answer every field of `docs/prototype-findings.md`.
 Press Ctrl-C and confirm the app plays on its normal output again.
 
+## Depends on the infrastructure repository
+
+This repository was created by hand. Until the infrastructure repository covers it, these are set outside it.
+Never change them with a CLI or the web UI. Propose the change in the infrastructure repository.
+
+- Rulesets for `main`: required checks (`fmt`, `build`, `test`, `markdownlint`, `yamllint`, `actionlint`,
+  `license`, `renovate-config`, `signoff`), merge method, no direct push.
+- Allow auto-merge for the repository.
+- Secrets and variables of the release app: `GH_APP_RELEASE_APP_ID` (variable) and
+  `GH_APP_RELEASE_PRIVATE_KEY` (secret), used by `release.yaml`.
+- The security app secret `GH_APP_SECURITY_PRIVATE_KEY` for `dco.yaml`, and the Renovate credentials that
+  `renovate.yaml` inherits.
+- Private vulnerability reporting, which `SECURITY.md` names as the preferred channel.
+- The labels `dependencies` and `release: pending`, `release: tagged`, `release: alpha`, `release: beta`,
+  `release: rc`.
+
 ## Deviations
 
 - The Swift toolchain is not pinned in `mise.toml`.
@@ -101,4 +117,9 @@ Press Ctrl-C and confirm the app plays on its normal output again.
 - The workflow pins (`actions/checkout`, `jdx/mise-action` and the shared `ostendorf-cloud/workflows` calls at `v0.2.2`)
   are copied from `ostendorf-cloud/burnlink/.github/workflows`. A newer tag of `ostendorf-cloud/workflows` exists
   locally (`v0.6.0`), its inputs were not checked against this repository.
+- `release-me.yaml` has no `files` list, because a Swift package has no version file. The version lives in the
+  git tag and `CHANGELOG.md`. `release.yaml` and `renovate.yaml` are copied from burnlink at the same pins.
+  `renovate.json` extends `github>ostendorf-cloud/workflows#v0.3.0` like govue, gitcd and wishlist.
+  The `renovate.yaml` caller has no `workflow_run` trigger, workflows#74 is not merged.
+- Release binaries would be signed ad hoc. There is no notarization and no Homebrew formula.
 - `lint:license` in the Taskfile and `find-commands` in `checks.yaml` are kept in step by hand.
