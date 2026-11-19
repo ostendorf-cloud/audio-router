@@ -93,6 +93,34 @@ swift build -c release
 Then answer every field of `docs/prototype-findings.md`.
 Press Ctrl-C and confirm the app plays on its normal output again.
 
+## Depends on the infrastructure repository
+
+This repository was created by hand. Until the infrastructure repository covers it, these are set outside it.
+Never change them with a CLI or the web UI. Propose the change in the infrastructure repository.
+
+Still missing:
+
+- A ruleset on `main`: required checks, merge method, no direct push.
+  The check names below come from the job ids in `checks.yaml` and the called workflows' job names.
+  Copy the exact names from a pull request run before writing the ruleset.
+  - `fmt`, `build`, `test`, `markdownlint`, `yamllint`, `actionlint`
+  - `renovate-config / Renovate configuration is valid`
+  - `license / License headers`
+  - `signoff / Every commit carries a DCO sign-off`
+  - the app check `DCO`
+- Allow auto-merge is off. Turn it on for the repository.
+- Private vulnerability reporting is off. `SECURITY.md` names it as the preferred channel.
+
+Already provided by the organisation, nothing to do here:
+
+- The variables `GH_APP_RELEASE_APP_ID` and `GH_APP_DEPENDENCIES_APP_ID`.
+- The secrets `GH_APP_RELEASE_PRIVATE_KEY`, `GH_APP_DEPENDENCIES_PRIVATE_KEY` and `GH_APP_SECURITY_PRIVATE_KEY`.
+- The labels `dependencies` and `release: pending`, `release: tagged`, `release: alpha`, `release: beta`,
+  `release: rc`.
+
+Not verified: that the release and dependencies GitHub Apps are installed on this repository.
+The security app is, its `DCO` check ran.
+
 ## Deviations
 
 - The Swift toolchain is not pinned in `mise.toml`.
@@ -111,4 +139,10 @@ Press Ctrl-C and confirm the app plays on its normal output again.
 - The workflow pins (`actions/checkout`, `jdx/mise-action` and the shared `ostendorf-cloud/workflows` calls at `v0.2.2`)
   are copied from `ostendorf-cloud/burnlink/.github/workflows`. A newer tag of `ostendorf-cloud/workflows` exists
   locally (`v0.6.0`), its inputs were not checked against this repository.
+- `release-me.yaml` has no `files` list, because a Swift package has no version file. The version lives in the
+  git tag and `CHANGELOG.md`. `release.yaml` and `renovate.yaml` are copied from burnlink at the same pins.
+  `renovate.json` extends `github>ostendorf-cloud/workflows#v0.3.0` like govue, gitcd and wishlist.
+  The `renovate.yaml` caller has no `workflow_run` trigger, workflows#74 is not merged.
+- Local builds are signed ad hoc by the toolchain. There is no notarization and no Homebrew formula.
+  `release.yaml` builds and publishes no binary.
 - `lint:license` in the Taskfile and `find-commands` in `checks.yaml` are kept in step by hand.

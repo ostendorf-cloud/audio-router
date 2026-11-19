@@ -2,6 +2,7 @@
   "ignores": [
     ".build/**",
     ".claude/worktrees/**",
+    "**/CHANGELOG.md",
     "CLAUDE.md"
   ],
   "config": {
