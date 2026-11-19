@@ -33,10 +33,30 @@ public final class RouteSession: @unchecked Sendable {
     private var aggregate: ObjectID?
     private var io: IOHandle?
     private var stopped = false
+    private var startFailure: String?
 
-    public init(backend: any AudioRoutingBackend, plan: RoutePlan) {
+    private let meter: Bool
+
+    public init(backend: any AudioRoutingBackend, plan: RoutePlan, meter: Bool = false) {
         self.backend = backend
         self.plan = plan
+        self.meter = meter
+    }
+
+    /// The layout and formats of the running route, nil before the start and after the stop.
+    public func routeInfo() -> RouteInfo? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let io, !stopped else { return nil }
+        return backend.routeInfo(handle: io)
+    }
+
+    /// The levels of the last full interval, nil when the meter is off or still priming.
+    public func meterReading() -> MeterReading? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard meter, let io, !stopped else { return nil }
+        return backend.readMeter(handle: io)
     }
 
     /// Creates the tap, the aggregate device and the IO proc. On failure everything created so far
@@ -53,14 +73,23 @@ public final class RouteSession: @unchecked Sendable {
             self.tap = tap
             let aggregate = try backend.createAggregate(deviceUID: plan.device.uid, tap: tap)
             self.aggregate = aggregate
-            io = try backend.startIO(aggregate: aggregate, tap: tap, channels: plan.channels)
+            io = try backend.startIO(
+                aggregate: aggregate, tap: tap, device: plan.device, channels: plan.channels, meter: meter)
         } catch {
             let leftovers = teardownLocked()
-            if !leftovers.isEmpty {
-                throw RouterError.teardownFailed([String(describing: error)] + leftovers)
-            }
-            throw error
+            let thrown: Error =
+                leftovers.isEmpty ? error : RouterError.teardownFailed([String(describing: error)] + leftovers)
+            startFailure = "\(thrown)"  // set under the lock, so a stop that waited for it sees it
+            throw thrown
         }
+    }
+
+    /// The text of the error a failed `start` threw, nil if there was none. Blocks while a start
+    /// or teardown runs.
+    public func failureOfStart() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return startFailure
     }
 
     /// Tears the route down and returns the messages of the steps that failed, empty on success.

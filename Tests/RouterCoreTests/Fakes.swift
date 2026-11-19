@@ -19,6 +19,37 @@ struct FakeCancellable: Cancellable {
     func cancel() {}
 }
 
+/// A device list that records the order of reads and registrations and can fire its observer.
+final class RecordingDevices: AudioDeviceProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: [OutputDevice]
+    private var observer: (@Sendable () -> Void)?
+    private var recorded: [String] = []
+
+    init(_ devices: [OutputDevice]) { current = devices }
+
+    var events: [String] { lock.withLock { recorded } }
+
+    func set(_ devices: [OutputDevice]) { lock.withLock { current = devices } }
+
+    func fire() { lock.withLock { observer }?() }
+
+    func outputDevices() throws -> [OutputDevice] {
+        lock.withLock {
+            recorded.append("list")
+            return current
+        }
+    }
+
+    func observeDeviceList(_ handler: @escaping @Sendable () -> Void) throws -> any Cancellable {
+        lock.withLock {
+            recorded.append("observe")
+            observer = handler
+        }
+        return FakeCancellable()
+    }
+}
+
 struct FakeProcesses: ProcessProviding {
     var list: [AudioProcess]
 
@@ -85,9 +116,31 @@ final class FakeBackend: AudioRoutingBackend, @unchecked Sendable {
         return 20
     }
 
-    func startIO(aggregate: ObjectID, tap: TapInfo, channels: ChannelPair) throws -> IOHandle {
+    func startIO(aggregate: ObjectID, tap: TapInfo, device: OutputDevice, channels: ChannelPair, meter: Bool)
+        throws -> IOHandle
+    {
+        lock.withLock { meterFlag = meter }
         try record("startIO \(aggregate) \(channels.first),\(channels.second)")
         return IOHandle(rawValue: 30)
+    }
+
+    /// The value of the `meter` argument of the last `startIO`.
+    var meterRequested: Bool { lock.withLock { meterFlag } }
+    private var meterFlag = false
+    private var readings: [MeterReading] = []
+
+    /// Readings `readMeter` hands out in order, then nil.
+    func queue(_ reading: MeterReading) { lock.withLock { readings.append(reading) } }
+
+    static let info = RouteInfo(
+        tap: StreamFormatInfo(sampleRate: 48000, channels: 2, interleaved: true),
+        inputBuffers: [32, 2], tapBuffers: 1..<2, outputBuffers: [32],
+        inputStreams: [], outputStreams: [], aggregateSampleRate: 48000, deviceSampleRate: 44100)
+
+    func routeInfo(handle: IOHandle) -> RouteInfo? { FakeBackend.info }
+
+    func readMeter(handle: IOHandle) -> MeterReading? {
+        lock.withLock { readings.isEmpty ? nil : readings.removeFirst() }
     }
 
     func signalSeen(handle: IOHandle) -> Bool { lock.withLock { signal } }

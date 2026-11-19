@@ -6,11 +6,14 @@ public struct RouteArguments: Equatable, Sendable {
     public let bundleID: String
     public let deviceUID: String
     public let channels: ChannelPair
+    /// Print the levels of the tap and of the output once a second.
+    public let meter: Bool
 
-    public init(bundleID: String, deviceUID: String, channels: ChannelPair) {
+    public init(bundleID: String, deviceUID: String, channels: ChannelPair, meter: Bool = false) {
         self.bundleID = bundleID
         self.deviceUID = deviceUID
         self.channels = channels
+        self.meter = meter
     }
 }
 
@@ -26,9 +29,10 @@ public enum ArgumentParser {
         usage:
           audio-router-proto devices
           audio-router-proto apps
-          audio-router-proto route --bundle-id <id> --device <uid> --channels <n>,<n+1>
+          audio-router-proto route --bundle-id <id> --device <uid> --channels <n>,<n+1> [--meter]
 
         Channels count from 1. The pair must be two adjacent channels, for example 3,4.
+        --meter prints the peak and RMS level of the tap and of the output in dBFS once a second to stdout.
         """
 
     /// Parses the arguments after the program name.
@@ -77,9 +81,16 @@ public enum ArgumentParser {
 
     private static func parseRoute(_ arguments: [String]) throws -> RouteArguments {
         var values: [String: String] = [:]
+        var meter = false
         var index = 0
         while index < arguments.count {
             let flag = arguments[index]
+            if flag == "--meter" {
+                guard !meter else { throw RouterError.usage("--meter given twice.") }
+                meter = true
+                index += 1
+                continue
+            }
             guard ["--bundle-id", "--device", "--channels"].contains(flag) else {
                 throw RouterError.usage("Unknown option \(flag).\n\(usage)")
             }
@@ -103,7 +114,8 @@ public enum ArgumentParser {
         return RouteArguments(
             bundleID: bundleID,
             deviceUID: deviceUID,
-            channels: try parseChannels(values["--channels", default: ""])
+            channels: try parseChannels(values["--channels", default: ""]),
+            meter: meter
         )
     }
 }

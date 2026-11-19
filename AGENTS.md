@@ -32,10 +32,12 @@ The prototype binary:
 ```sh
 .build/debug/audio-router-proto devices
 .build/debug/audio-router-proto apps
-.build/debug/audio-router-proto route --bundle-id <id> --device <uid> --channels <n>,<n+1>
+.build/debug/audio-router-proto route --bundle-id <id> --device <uid> --channels <n>,<n+1> [--meter]
 ```
 
 Channels count from 1 and must be two adjacent channels.
+`--meter` prints peak and RMS in dBFS of the tap and the output to stdout once a second.
+`ChannelMapper.measure` runs next to `render` in the IO proc with the same real time contract.
 
 ## Constraints
 
@@ -43,7 +45,8 @@ Channels count from 1 and must be two adjacent channels.
   `ChannelMapper.render` and `routerIOProc` follow that. Keep new code out of them.
 - Teardown order is fixed: IO proc, aggregate device, tap. `RouteSession` owns it and tests pin it.
 - Every exit path tears down: signal (SIGINT, SIGTERM, SIGHUP), error, device removed.
-  They all go through `Finisher.finish`, which calls `RouteSession.stop` and exits only after it returned.
+  They all go through `Finisher.finish` (in `RouterCore`, with an injected exit), which calls
+  `RouteSession.stop` and exits only after it returned.
   Add no `exit` that skips it. `RouteSession` holds one lock for all of `start` and every teardown, so a
   second `stop` returns only after the first teardown finished.
 - The tap uses `mutedWhenTapped`, so a stopped IO proc lets the app play again. Do not switch to `muted`
