@@ -79,6 +79,34 @@ struct StreamDiffLogTests {
         #expect(log.lines.last == log.outcome)
     }
 
+    @Test func aDriftFailureDoesNotAbortTheDiffAndTheTapIsFoundAtIndexOne() throws {
+        // The owner's run: A is [239], the tap list was set, the drift property failed with !obj.
+        var log = StreamDiffLog()
+        log.step("aggregate 237 created with the sub device only, input streams A [239]")
+        log.step("set kAudioAggregateDevicePropertyTapList ('tap#') to [x]: OSStatus 0")
+        let status = RouterError.coreAudio(operation: "set 'drft'", status: 560_947_818)
+        log.driftNotSet(reason: "\(status)")
+        #expect(log.failure == nil)
+        #expect(log.steps.last?.hasPrefix("drift compensation not set (") == true)
+        #expect(log.steps.last?.contains("OSStatus 560947818 (!obj)") == true)
+        #expect(log.steps.last?.hasSuffix("tap shares the main device clock") == true)
+        // The diff then reads B and decides.
+        let index = try ChannelMapper.tapBufferByStreamDiff(
+            before: [239], after: [239, 240], streamChannels: [32, 32], inputBuffers: [32, 32],
+            tapChannels: 32, interleaved: true)
+        log.used(index: index)
+        #expect(index == 1)
+        #expect(log.outcome == "stream id diff: used, tap at index 1")
+    }
+
+    @Test func driftIsSkippedForTheDeviceStreamAndTheDiffIsUsedOnlyThere() {
+        #expect(!StreamDiffPlan.setsDrift(mode: .deviceStream))
+        #expect(StreamDiffPlan.setsDrift(mode: .stereoMixdown))
+        #expect(StreamDiffPlan.usesDiff(mode: .deviceStream))
+        #expect(!StreamDiffPlan.usesDiff(mode: .stereoMixdown))
+        #expect(StreamDiffPlan.driftSkipped.contains("reasoning, not header text"))
+    }
+
     @Test func theFirstFailureStaysAndBeatsALaterUse() {
         var log = StreamDiffLog()
         log.fail("first")

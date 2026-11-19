@@ -174,9 +174,15 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
             let before = try streams()
             log.step("aggregate \(aggregateID) created with the sub device only, input streams A \(before)")
             var address = CoreAudioProperty.address(kAudioAggregateDevicePropertyTapList)
-            var list = [tap.uid] as CFArray
-            let setStatus = AudioObjectSetPropertyData(
-                aggregateID, &address, 0, nil, UInt32(MemoryLayout<CFArray>.size), &list)
+            // The property data is one CFArrayRef.
+            let list = [tap.uid] as CFArray
+            var listRef = Unmanaged.passUnretained(list)
+            let setStatus = withExtendedLifetime(list) {
+                withUnsafeMutablePointer(to: &listRef) {
+                    AudioObjectSetPropertyData(
+                        aggregateID, &address, 0, nil, UInt32(MemoryLayout<Unmanaged<CFArray>>.size), $0)
+                }
+            }
             log.step("set kAudioAggregateDevicePropertyTapList ('tap#') to [\(tap.uid)]: OSStatus \(setStatus)")
             try CoreAudioProperty.check(setStatus, "set kAudioAggregateDevicePropertyTapList ('tap#')")
             let subTaps: [AudioObjectID] = try CoreAudioProperty.array(
@@ -186,14 +192,33 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
                 throw RouterError.unsupportedFormat(
                     "the aggregate has no sub tap (kAudioAggregateDevicePropertySubTapList) after the tap list was set")
             }
-            for subTap in subTaps {
-                var drift = address
-                drift.mSelector = kAudioSubTapPropertyDriftCompensation
-                var on: UInt32 = 1
-                let status = AudioObjectSetPropertyData(
-                    subTap, &drift, 0, nil, UInt32(MemoryLayout<UInt32>.size), &on)
-                log.step("set kAudioSubTapPropertyDriftCompensation ('drft') on sub tap \(subTap): OSStatus \(status)")
-                try CoreAudioProperty.check(status, "set kAudioSubTapPropertyDriftCompensation ('drft')")
+            // Read only: what kind of object are the ids, for the next run to explain a bad object.
+            func classText(_ id: AudioObjectID) -> String {
+                guard
+                    let value: UInt32 = try? CoreAudioProperty.value(
+                        id, kAudioObjectPropertyClass, initial: UInt32(0))
+                else { return "\(id) class not available" }
+                return "\(id) class '\(fourCC(Int32(bitPattern: value)))'"
+            }
+            log.step(
+                "object classes (kAudioObjectPropertyClass): aggregate \(classText(aggregateID)), "
+                    + "tap \(classText(tap.objectID)), sub taps " + subTaps.map(classText).joined(separator: ", "))
+            if StreamDiffPlan.setsDrift(mode: tap.mode) {
+                for subTap in subTaps {
+                    var drift = address
+                    drift.mSelector = kAudioSubTapPropertyDriftCompensation
+                    var on: UInt32 = 1
+                    let status = AudioObjectSetPropertyData(
+                        subTap, &drift, 0, nil, UInt32(MemoryLayout<UInt32>.size), &on)
+                    log.step(
+                        "set kAudioSubTapPropertyDriftCompensation ('drft') on sub tap \(subTap): OSStatus \(status)")
+                    if status != noErr {
+                        log.driftNotSet(
+                            reason: "\(RouterError.coreAudio(operation: "set 'drft'", status: status))")
+                    }
+                }
+            } else {
+                log.step(StreamDiffPlan.driftSkipped)
             }
             // The stream list may refresh asynchronously. Poll up to 1 s in steps of 50 ms.
             var after = try streams()
@@ -214,12 +239,15 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
 
     public func createAggregate(deviceUID: String, tap: TapInfo) throws -> ObjectID {
         var log = StreamDiffLog()
-        let diffID: ObjectID?
-        do {
-            diffID = try createAggregateByStreamDiff(deviceUID: deviceUID, tap: tap, log: &log)
-        } catch {
-            log.fail("\(error)")
-            diffID = nil
+        var diffID: ObjectID?
+        if StreamDiffPlan.usesDiff(mode: tap.mode) {
+            do {
+                diffID = try createAggregateByStreamDiff(deviceUID: deviceUID, tap: tap, log: &log)
+            } catch {
+                log.fail("\(error)")
+            }
+        } else {
+            log.fail("stereo-mixdown keeps the tap in the composition, with the drift compensation key")
         }
         if let diffID {
             lock.withLock { diffLogs[diffID] = log }

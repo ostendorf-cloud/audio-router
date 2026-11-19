@@ -338,7 +338,18 @@ used, tap at index k` or `not used (reason)` always appears, also before a refus
 refusal text carries it. The header (`AudioHardware.h`) describes `kAudioAggregateDevicePropertyTapList`
 only as a CFArray of tap UUID strings and says nothing about the dictionary form, the scope, a
 stopped device or an asynchronous stream list. The streams are therefore polled for up to 1 s in
-steps of 50 ms after the tap list was set. The reason of the first failure is not yet known.
+steps of 50 ms after the tap list was set.
+
+Second run: streams A were `[239]`, the tap list set returned OSStatus 0 and the aggregate had one
+sub tap (4403). Setting `kAudioSubTapPropertyDriftCompensation` on 4403 failed with 560947818
+(`!obj`, bad object), which aborted the diff. Now the drift step is skipped in `device-stream`
+mode: the tap is of the output stream of the same device that is the aggregate's main sub device,
+so there is one hardware clock. This is reasoning, not header text: `AudioHardware.h` says only
+that `kAudioSubTapDriftCompensationKey` means "drift compensation is enabled for the AudioSubTap"
+and does not say for which clock. No long run was measured, so drift over time is not excluded.
+The stereo mixdown keeps the tap in the composition with the drift key. A failed drift set no
+longer stops the diff. A `kAudioObjectPropertyClass` step line names the class of the aggregate,
+the tap and the sub tap, to explain the bad object.
 
 What is not proven. The header does not say that the buffers of the IO proc follow the order of
 `kAudioDevicePropertyStreams`, and it does not describe the order of operations (tap list set
