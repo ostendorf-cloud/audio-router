@@ -394,6 +394,20 @@ struct ChannelMapperTests {
             tapChannels: tap, interleaved: interleaved)
     }
 
+    @Test func streamsThatChangedSinceTheTapWasAddedFail() throws {
+        func run(_ current: [UInt32]?) throws -> Int {
+            try ChannelMapper.tapBufferByStreamDiff(
+                before: [239], after: [239, 241], streamChannels: [32, 32], inputBuffers: [32, 32],
+                tapChannels: 32, interleaved: true, currentStreams: current)
+        }
+        #expect(try run([239, 241]) == 1)
+        #expect(try run(nil) == 1)
+        #expect(throws: RouterError.self) { try run([239, 242]) }
+        #expect(throws: RouterError.self) { try run([239]) }
+        #expect(throws: RouterError.self) { try run([241, 239]) }
+        #expect(throws: RouterError.self) { try run([]) }
+    }
+
     @Test func theNewStreamIsTheTapAtItsIndex() throws {
         #expect(try diff(before: [239], after: [239, 240]) == 1)
         // The order differs from "tap last": the new stream sits first.

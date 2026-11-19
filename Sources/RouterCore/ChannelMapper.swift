@@ -154,10 +154,14 @@ public enum ChannelMapper {
         streamChannels: [Int],
         inputBuffers: [Int],
         tapChannels: Int,
-        interleaved: Bool
+        interleaved: Bool,
+        currentStreams: [UInt32]? = nil
     ) throws -> Int {
         func fail(_ reason: String) -> RouterError { .unsupportedFormat("stream id diff: \(reason)") }
         guard interleaved else { throw fail("only an interleaved tap is handled") }
+        if let currentStreams, currentStreams != after {
+            throw fail("the input streams changed since the tap was added (after \(after), now \(currentStreams))")
+        }
         let added = after.indices.filter { !before.contains(after[$0]) }
         guard added.count == 1, let k = added.first else {
             throw fail("\(added.count) new input streams, expected exactly one (before \(before), after \(after))")

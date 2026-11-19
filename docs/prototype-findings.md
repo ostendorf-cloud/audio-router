@@ -316,9 +316,9 @@ relation names it. The settable tap list led to the stream id diff below.
 `createAggregate` creates the aggregate with the sub device only and reads
 `kAudioDevicePropertyStreams` (input scope, IDs A). It then sets
 `kAudioAggregateDevicePropertyTapList` (a CFArray of the tap uid, the type in `AudioHardware.h`),
-switches `kAudioSubTapPropertyDriftCompensation` on for the sub taps from
-`kAudioAggregateDevicePropertySubTapList` (the composition key for it is not available when the
-list is set afterwards), and reads the streams again (IDs B). The one new ID is the tap's stream.
+and reads the streams again (IDs B). The one new ID is the tap's stream. Drift compensation is
+skipped in `device-stream` mode (see the second run below), the composition key for it is not
+available when the list is set afterwards.
 `ChannelMapper.tapBufferByStreamDiff` checks: exactly one new stream, the old streams keep their
 order, the channels per stream equal the buffer list, the new stream has the tap's channel count,
 the tap is interleaved. Its index in B is the tap buffer. The route prints `tap buffer: by stream
@@ -326,8 +326,9 @@ id diff` and a `stream id diff:` line with the lists.
 
 Any failure (an error, no new stream, several, a mismatch, a non interleaved tap) is not fatal:
 the route falls back to the rules above, which refuse a symmetric layout and need `--tap-buffer`.
-If setting the tap list or the drift compensation fails, the aggregate is destroyed and created
-again with the tap in its composition, as before. `--tap-buffer <n>` always wins.
+If setting the tap list fails, the aggregate is destroyed and created again with the tap in its
+composition, as before. A failed drift compensation set only logs and does not stop the diff.
+`--tap-buffer <n>` always wins.
 
 First run of this method on the X32 (without `--tap-buffer`): the route was refused as ambiguous
 and printed no `stream id diff:` line, because the diagnostics were only printed on success and the
@@ -355,10 +356,13 @@ What is not proven. The header does not say that the buffers of the IO proc foll
 `kAudioDevicePropertyStreams`, and it does not describe the order of operations (tap list set
 while the aggregate exists and is stopped, whether stream IDs of the sub device stay). The channel
 count check cannot tell two streams with the same count apart, as on the X32 (`[32, 32]`). Only
-a run proves the index. On the X32 the owner's measurement is that the tap was in buffer 1, and the
-probe printed the streams `239,240`, so the diff is expected to name index 1. The first run
-without `--tap-buffer` shows it: the tap buffer line must say `by stream id diff`, name buffer 1,
-and the signal line must show tap channels exactly `1,2`. This proves it for one device only.
+a run proves the index. Measured on the X32 without `--tap-buffer`: streams A `[239]`, tap list
+set with OSStatus 0, sub tap `[4446]` (its class is not available, the id is not a settable
+object), drift skipped, streams B after 0 ms `[239, 241]`, `stream id diff: used, tap at index 1`,
+`tap buffer: by stream id diff`, `tap peak` -6.0 dBFS, rms -9.0 dBFS, signal on tap channels
+exactly `1,2`. That is the same buffer the `--tap-buffer 1` run used. This proves it for one
+device only. Not measured: the -20 dBFS file, the MacBook speakers or any other stereo device, a
+long run for drift, a device with several input streams.
 Not testable here: the Core Audio calls (the tests cover the decision logic with fakes).
 
 Other limits, stated plainly:
@@ -389,7 +393,7 @@ uid from `devices` as `--device`. The app must already play to that device, see 
 | X-USB (32 channels) | stereo-mixdown | -20 dBFS | | | | | | |
 | X-USB (32 channels) | device-stream, `--tap-buffer 1` | -6 dBFS | 48000 Hz, 32 channels, interleaved | named by `--tap-buffer`, buffers `[32, 32]`, tap in buffer 1 | tap `1,2`, device `1,2,3,31,32` (noise), preferred pair `1,2` | -6.0 | -9.0 | yes |
 | X-USB (32 channels) | device-stream, `--tap-buffer 1` | -20 dBFS | | | | | | |
-| X-USB (32 channels) | device-stream, no `--tap-buffer` | -6 dBFS | | | | | | |
+| X-USB (32 channels) | device-stream, no `--tap-buffer` | -6 dBFS | 48000 Hz, 32 channels, interleaved (tap list set OSStatus 0, sub tap class not available) | `by stream id diff`, tap in buffer 1, A `[239]`, B `[239, 241]` | tap `1,2`, device `1,2,3,31,32` (noise), preferred pair `1,2` | -6.0 | -9.0 | yes |
 | MacBook speakers (2 channels) | stereo-mixdown | -6 dBFS | | | | | | |
 | MacBook speakers (2 channels) | stereo-mixdown | -20 dBFS | | | | | | |
 | MacBook speakers (2 channels) | device-stream | -6 dBFS | | | | | | |
@@ -400,8 +404,8 @@ uid from `devices` as `--device`. The app must already play to that device, see 
 - The `probe:` lines (stream owners, tap owned objects, tap list settable):
 - Which mode is unity on the X-USB: `device-stream` (measured, -6.0 dBFS). Does it hold on the
   MacBook speakers, and at -20 dBFS: not measured yet.
-- Still unmeasured: the -20 dBFS file on both modes, the MacBook speaker rows, the run without
-  `--tap-buffer` (stream id diff).
+- Still unmeasured: the -20 dBFS file on both modes, the MacBook speaker rows, a long run for
+  drift, a device with several input streams.
 
 How to run the table. QuickTime Player cannot read from `/private/tmp`, so copy the sine files to
 the Desktop first:

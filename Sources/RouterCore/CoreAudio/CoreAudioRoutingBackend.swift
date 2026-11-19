@@ -253,7 +253,7 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
             lock.withLock { diffLogs[diffID] = log }
             return diffID
         }
-        log.step("created the aggregate again with the tap in its composition, no diff possible")
+        log.step("created the aggregate with the tap in its composition, no diff possible")
         var aggregateID = AudioObjectID(kAudioObjectUnknown)
         let full = composition(deviceUID: deviceUID, tap: tap) as CFDictionary
         try CoreAudioProperty.check(
@@ -292,7 +292,9 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
                 let index = try ChannelMapper.tapBufferByStreamDiff(
                     before: lists.before, after: lists.after, streamChannels: formats.map(\.channels),
                     inputBuffers: input.channelsPerBuffer, tapChannels: tap.channelCount,
-                    interleaved: tap.isInterleaved)
+                    interleaved: tap.isInterleaved,
+                    currentStreams: try CoreAudioProperty.array(
+                        aggregate, kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeInput, initial: 0))
                 diffBuffer = index
                 diffLog.used(index: index)
             } catch {
