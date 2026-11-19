@@ -78,6 +78,26 @@ enum CoreAudioProperty {
         }
     }
 
+    /// The virtual format of every stream of the device in `scope`, in stream order.
+    static func streamFormats(_ device: AudioObjectID, scope: AudioObjectPropertyScope) throws
+        -> [StreamFormatInfo]
+    {
+        let streams: [AudioObjectID] = try array(device, kAudioDevicePropertyStreams, scope: scope, initial: 0)
+        return try streams.map { stream in
+            let format: AudioStreamBasicDescription = try value(
+                stream, kAudioStreamPropertyVirtualFormat, initial: AudioStreamBasicDescription())
+            return StreamFormatInfo(
+                sampleRate: format.mSampleRate,
+                channels: Int(format.mChannelsPerFrame),
+                interleaved: format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
+            )
+        }
+    }
+
+    static func nominalSampleRate(_ device: AudioObjectID) -> Double? {
+        try? value(device, kAudioDevicePropertyNominalSampleRate, initial: Float64(0))
+    }
+
     static func isFloat32(_ format: AudioStreamBasicDescription) -> Bool {
         format.mFormatID == kAudioFormatLinearPCM
             && format.mFormatFlags & kAudioFormatFlagIsFloat != 0

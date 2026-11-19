@@ -6,6 +6,16 @@
 /// Browsers and Electron apps play audio from helper processes whose bundle ids extend the
 /// parent id, for example `com.google.Chrome.helper.Renderer` under `com.google.Chrome`. Whether
 /// every real app follows this scheme is an open question the prototype answers.
+public enum ProcessFilter {
+    /// The bundle id in `Sources/audio-router-proto/Info.plist`. A test keeps the two equal.
+    public static let ownBundleID = "cloud.ostendorf.audio-router-proto"
+
+    /// Drops the tool's own process, matched by pid or by bundle id.
+    public static func withoutSelf(_ processes: [AudioProcess], bundleID: String, pid: Int32) -> [AudioProcess] {
+        processes.filter { $0.pid != pid && $0.bundleID != bundleID }
+    }
+}
+
 public enum BundleGrouping {
     /// The bundle id of the parent app for `bundleID`.
     ///

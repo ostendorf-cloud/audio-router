@@ -53,11 +53,14 @@ public enum ChannelMapper {
     /// sub device streams and the tap streams come. This looks for the buffer shape of the tap,
     /// one buffer with all channels when interleaved, one buffer per channel otherwise. It
     /// refuses when the shape appears more than once, because then the tap cannot be told from a
-    /// device input and a microphone could be routed to the output.
+    /// device input and a microphone could be routed to the output. That includes a device with
+    /// one stereo input stream (layout `[2, 2]`). Phase 1 refuses it and names the device.
+    /// A non interleaved tap is handled: its shape is one buffer per channel.
     public static func tapBuffers(
         in input: ChannelLayout,
         tapChannels: Int,
-        interleaved: Bool
+        interleaved: Bool,
+        deviceName: String = "the output device"
     ) throws -> Range<Int> {
         guard tapChannels > 0 else {
             throw RouterError.unsupportedFormat("the tap has no channels")
@@ -77,7 +80,7 @@ public enum ChannelMapper {
                 "no input buffer of the aggregate device has the tap shape \(shape), buffers are \(buffers)")
         }
         guard matches.count == 1 else {
-            throw RouterError.ambiguousTapStream(buffers: buffers, tapShape: shape)
+            throw RouterError.ambiguousTapStream(device: deviceName, buffers: buffers, tapShape: shape)
         }
         return match
     }
@@ -177,10 +180,68 @@ public enum ChannelMapper {
                 let sample = source[frame &* fromChannels &+ route.sourceChannel]
                 destination[frame &* toChannels &+ route.destinationChannel] = sample
                 // Drops the sign bit, so -0.0 counts as silence. A bit cast, not a library call.
-                bits |= unsafeBitCast(sample, to: UInt32.self) << 1
+                bits |= sample.bitPattern << 1
                 frame &+= 1
             }
             if bits != 0 { signalSeen.pointee = 1 }
         }
+    }
+
+    /// Accumulates the level of the tap samples that `render` read and of the samples it wrote.
+    /// Call it after `render` with the same arguments. It reads the output again, so a wrong
+    /// copy would show as a difference between the two readings.
+    ///
+    /// Same real time contract as `render`: raw pointers and integers only, wrapping index
+    /// arithmetic, no allocation, lock, logging or reference counting. The meter memory scheme and
+    /// why plain words are enough for a diagnostic are in `MeterBlock`.
+    static func measure(
+        routes: UnsafePointer<ChannelRoute>,
+        routeCount: Int,
+        input: UnsafePointer<AudioBufferList>,
+        output: UnsafePointer<AudioBufferList>,
+        meter: MeterBlock
+    ) {
+        let header = MemoryLayout<AudioBufferList>.size - MemoryLayout<AudioBuffer>.size
+        let inputCount = Int(input.pointee.mNumberBuffers)
+        let outputCount = Int(output.pointee.mNumberBuffers)
+        let inputBuffers = UnsafeRawPointer(input).advanced(by: header)
+            .assumingMemoryBound(to: AudioBuffer.self)
+        let outputBuffers = UnsafeRawPointer(output).advanced(by: header)
+            .assumingMemoryBound(to: AudioBuffer.self)
+        let floatSize = MemoryLayout<Float>.size
+        let slot = Int(meter.words[0] & 1)
+        var inputLevel = meter.slots[slot]
+        var outputLevel = meter.slots[2 &+ slot]
+
+        var index = 0
+        while index < routeCount {
+            let route = routes[index]
+            index &+= 1
+            guard route.sourceBuffer >= 0, route.sourceBuffer < inputCount,
+                route.destinationBuffer >= 0, route.destinationBuffer < outputCount,
+                route.sourceChannel >= 0, route.destinationChannel >= 0
+            else { continue }
+            let from = inputBuffers[route.sourceBuffer]
+            let to = outputBuffers[route.destinationBuffer]
+            let fromChannels = Int(from.mNumberChannels)
+            let toChannels = Int(to.mNumberChannels)
+            guard fromChannels > 0, toChannels > 0,
+                route.sourceChannel < fromChannels, route.destinationChannel < toChannels,
+                let fromData = from.mData, let toData = to.mData
+            else { continue }
+            var frames = Int(from.mDataByteSize) / (floatSize &* fromChannels)
+            let outFrames = Int(to.mDataByteSize) / (floatSize &* toChannels)
+            if outFrames < frames { frames = outFrames }
+            let source = fromData.assumingMemoryBound(to: Float.self)
+            let destination = toData.assumingMemoryBound(to: Float.self)
+            var frame = 0
+            while frame < frames {
+                inputLevel.add(source[frame &* fromChannels &+ route.sourceChannel])
+                outputLevel.add(destination[frame &* toChannels &+ route.destinationChannel])
+                frame &+= 1
+            }
+        }
+        meter.slots[slot] = inputLevel
+        meter.slots[2 &+ slot] = outputLevel
     }
 }

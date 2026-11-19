@@ -28,6 +28,46 @@ public enum Formatting {
         return lines.joined(separator: "\n")
     }
 
+    /// Decibels with one decimal. Silence is `-inf`.
+    static func decibels(_ value: Double) -> String {
+        value == -Double.infinity ? "-inf" : String(format: "%.1f", value)
+    }
+
+    /// One line per interval: peak and RMS of the tap input and of the output, in dBFS.
+    public static func meter(_ reading: MeterReading) -> String {
+        func level(_ name: String, _ level: LevelReading) -> String {
+            "\(name) peak \(decibels(level.peakDBFS)) dBFS rms \(decibels(level.rmsDBFS)) dBFS"
+        }
+        return "meter: \(level("tap", reading.input)) | \(level("out", reading.output)) | \(reading.frames) frames"
+    }
+
+    static func hertz(_ value: Double?) -> String {
+        guard let value, value > 0 else { return "unknown" }
+        return value == value.rounded() ? String(format: "%.0f Hz", value) : String(format: "%.1f Hz", value)
+    }
+
+    static func stream(_ format: StreamFormatInfo) -> String {
+        "\(hertz(format.sampleRate)), \(format.channels) channels, "
+            + (format.interleaved ? "interleaved" : "not interleaved")
+    }
+
+    /// The lines printed once the route runs: formats, buffer layout and the tap's buffers.
+    public static func routeInfo(_ info: RouteInfo) -> [String] {
+        let tapBuffers =
+            info.tapBuffers.count == 1
+            ? "buffer \(info.tapBuffers.lowerBound)"
+            : "buffers \(info.tapBuffers.lowerBound) to \(info.tapBuffers.upperBound - 1)"
+        return [
+            "tap format: \(stream(info.tap))",
+            "aggregate input buffers: \(info.inputBuffers), tap in \(tapBuffers)",
+            "aggregate input streams: " + info.inputStreams.map(stream).joined(separator: "; "),
+            "aggregate output buffers: \(info.outputBuffers)",
+            "aggregate output streams: " + info.outputStreams.map(stream).joined(separator: "; "),
+            "sample rate: tap \(hertz(info.tap.sampleRate)), aggregate \(hertz(info.aggregateSampleRate)), "
+                + "device \(hertz(info.deviceSampleRate))",
+        ]
+    }
+
     /// Left aligned columns separated by two spaces, no trailing spaces.
     static func table(_ rows: [[String]]) -> String {
         let columns = rows.map(\.count).max() ?? 0
