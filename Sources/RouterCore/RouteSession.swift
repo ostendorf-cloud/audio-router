@@ -121,6 +121,31 @@ public final class RouteSession: @unchecked Sendable {
         return elapsed >= silenceAfter ? .silent : .waiting
     }
 
+    /// The tap check for the state the signal wait ended in: the activity line and the warning, if
+    /// any. It runs for `.present` and for `.silent`. A buffer that is silent on the source pair never
+    /// reaches `.present`, because only a routed channel sets the signal flag, yet that is the case
+    /// the check exists for: the device input may be active while the tap shows nothing. `.waiting`
+    /// has nothing to say. Control thread only.
+    public func tapReport(for state: SignalState) -> (activity: String, warning: String?)? {
+        switch state {
+        case .waiting:
+            return nil
+        case .present, .silent:
+            guard let active = activeInputChannels(), let info = routeInfo() else { return nil }
+            return TapCheck.report(active: active, info: info)
+        }
+    }
+
+    /// The output for a wait that ended silent: the tap check first, the permission hint only
+    /// where it can be the cause, see `TapCheck.silentWait`. Control thread only.
+    public func silentWaitOutput() -> TapCheck.SilentWaitOutput {
+        TapCheck.silentWait(
+            active: activeInputChannels(), info: routeInfo(),
+            fullHint: Formatting.silenceWarning(
+                bundleID: plan.appBundleID, mode: plan.tapMode, deviceName: plan.device.name),
+            shortHint: Formatting.permissionHint)
+    }
+
     private func teardownLocked() -> [String] {
         guard !stopped else { return [] }
         stopped = true

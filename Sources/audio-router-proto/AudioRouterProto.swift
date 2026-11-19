@@ -120,18 +120,18 @@ struct AudioRouterProto {
                 // Two seconds later, name the channels that carried signal. It shows where the
                 // app sits in the tap and whether a device input is hot.
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
-                    guard let active = session.activeInputChannels(), let info = session.routeInfo() else { return }
-                    let found = ChannelMapper.activity(
-                        active: active, inputBuffers: info.inputBuffers, tapBuffers: info.tapBuffers)
-                    let line = Formatting.activity(
-                        tap: found.tap, device: found.device, preferred: info.preferredStereo)
-                    Diagnostics.write(line + "\n", to: STDOUT_FILENO)
+                    guard let report = session.tapReport(for: .present) else { return }
+                    Diagnostics.write(report.activity + "\n", to: STDOUT_FILENO)
+                    if let warning = report.warning { Diagnostics.write(warning + "\n") }
                 }
             case .silent:
                 timer.cancel()
-                Diagnostics.write(
-                    Formatting.silenceWarning(
-                        bundleID: plan.appBundleID, mode: plan.tapMode, deviceName: plan.device.name))
+                // No routed channel carried a sample. A wrong buffer or an app on another pair ends
+                // here. The tap check runs first: the permission hint is printed only where it can
+                // be the cause. The activity flags cover the 10 s.
+                let output = session.silentWaitOutput()
+                if let activity = output.activity { Diagnostics.write(activity + "\n", to: STDOUT_FILENO) }
+                for warning in output.warnings { Diagnostics.write(warning.hasSuffix("\n") ? warning : warning + "\n") }
             }
         }
         timer.resume()

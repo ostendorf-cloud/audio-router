@@ -361,8 +361,9 @@ set with OSStatus 0, sub tap `[4446]` (its class is not available, the id is not
 object), drift skipped, streams B after 0 ms `[239, 241]`, `stream id diff: used, tap at index 1`,
 `tap buffer: by stream id diff`, `tap peak` -6.0 dBFS, rms -9.0 dBFS, signal on tap channels
 exactly `1,2`. That is the same buffer the `--tap-buffer 1` run used. This proves it for one
-device only. Not measured: the -20 dBFS file, the MacBook speakers or any other stereo device, a
-long run for drift, a device with several input streams.
+device only. Not measured at that run: the -20 dBFS file (measured later, see the tables
+below), the MacBook speakers or any other stereo device, a long run for drift, a device with
+several input streams.
 Not testable here: the Core Audio calls (the tests cover the decision logic with fakes).
 
 Other limits, stated plainly:
@@ -379,6 +380,130 @@ Other limits, stated plainly:
   looks like a copy paste. The route reads `isExclusive` back, prints it next to `isMixdown`
   (`tap description:`) and refuses to start when it is true in this mode.
 
+The tap warning. The assumption that the IO buffers follow the order of the stream list is
+measured on one device only, and for a symmetric layout such as `[32, 32]` or `[2, 2]` nothing in
+the buffer shapes can contradict it. About two seconds after the first signal the route prints the
+signal line and, when it looks wrong, a line starting with `warning: tap buffer`. It never stops
+the route. A multichannel app is legitimate and noise on a device input counts as activity, so a
+refusal would be wrong.
+
+The check runs about two seconds after the first signal. When no routed channel ever carries a
+sample, it runs once after 10 seconds, before the generic no audio warning, and the generic
+warning depends on the result:
+
+- Signal on tap channels outside `--source-channels`: the specific warning only. Capture works,
+  so the permission hint would name a wrong cause. Measured in run 3 below: the permission
+  warning came first and was misleading, that order was the defect.
+- No signal on the tap, a device input active: the specific warning, then one short sentence
+  that the capture permission may also be missing.
+- Nothing active: the generic no audio warning with the permission hint only.
+
+That is the case of a wrong buffer or an app on another pair, silent on the source pair. The
+warning goes to stderr and the signal line to stdout, so use `2>&1` when both go to a log.
+
+The warning does not detect the 1/16 gain loss of a stereo mixdown tap (see the measurement
+above). It checks where the signal sits, not how loud it is. Check the gain with `--meter`.
+
+The warning fires in two cases:
+
+- The tap side of the signal line shows channels outside `--source-channels` (default 1,2). Either
+  the app plays on another pair, or the picked buffer is not the tap.
+- The tap side shows none while the device input side shows activity. The picked buffer may be a
+  device input.
+
+It names the picked buffer, how it was chosen (`stream id diff`, `--tap-buffer`, or by layout) and
+the retry flags. How to read it:
+
+- Signal line `signal on tap channels: 1,2 | on device input channels (noise counts): ...` and no
+  warning: the pick matches the source pair. This is the X-USB result.
+- Warning with tap channels outside the pair: look at the channels it names. If they are the pair
+  the app should use, retry with `--source-channels <a>,<b>`. If the tap side looks like device
+  noise (for example `1,2,3,31,32`), the buffer is wrong: retry with `--tap-buffer <n>` for each
+  other buffer of the tap shape in the `aggregate input buffers` line.
+- Warning with no signal on the tap: the app may not play to the target device (device stream mode
+  only taps audio that goes there), or the buffer is wrong. Check the macOS default output first.
+- No warning is not proof. An app that writes only inside the pair on a wrong buffer that carries
+  device noise inside the pair looks the same as a right pick.
+
+Measured on 2026-11-19 on the owner's Mac, branch `feat/11-tap-warning`, release build. Device
+X-USB (BEHRINGER), 32 channels, 48000 Hz, output routed with `--channels 3,4`. The first round ran
+at 74557ae (runs 1 to 3) with `com.spotify.client` playing music. The second round ran at bb1a93c.
+Its gain check rows play the -20 dBFS 1 kHz sine in QuickTime Player, its other rows play Spotify.
+Where the app is music, no level in the table is a gain check.
+
+| Run | Command (options) | Tap buffer | Source channels | Warning printed | Observed lines |
+| --- | ----------------- | ---------- | --------------- | --------------- | -------------- |
+| 1, right pick | `--meter` | 1, by stream id diff (`aggregate input buffers: [32, 32], tap in buffer 1`) | 1,2 (default) | no (expected: none) | `signal on tap channels: 1,2 \| on device input channels (noise counts): 1,2,3,5,6,31,32 \| device preferred stereo pair: 1,2`. Meter: `tap` and `out` peak identical on every line, peak -23.3 to -31.9 dBFS, rms -35.0 to -45.7 dBFS |
+| 2, forced wrong buffer | `--tap-buffer 0` | 0, by `--tap-buffer` (the stream id diff still found index 1) | 1,2 (default) | yes (expected: yes) | `signal on tap channels: 1,2,3,5,6,31,32 \| on device input channels (noise counts): 1,2 \| device preferred stereo pair: 1,2`, then `warning: tap buffer 0 was picked by --tap-buffer: signal on tap channels 3,5,6,31,32, outside --source-channels 1,2. ...`. The owner heard their microphone on output channels 3 and 4: buffer 0 is the device input, not the app |
+| 3, source pair the app does not use | `--source-channels 3,4` | 1, by stream id diff (the correct buffer) | 3,4 | yes, in the wrong order at 74557ae: first the generic `warning: no audio arrived in 10 seconds ... the system audio capture permission may be missing or denied ...` (misleading, capture works and the pair is wrong), then the specific warning | `signal on tap channels: 1,2 \| on device input channels (noise counts): 1,2,3,31,32 \| ...`, then `warning: tap buffer 1 was picked by stream id diff: signal on tap channels 1,2, outside --source-channels 3,4. ...`. The specific warning fires after the silence wait, so the fix of 74557ae works in the live flow. The order was fixed after this run, measured again in the row `3 again` |
+| 3 again, order fixed (bb1a93c) | `--source-channels 3,4` | 1, by stream id diff | 3,4 | yes, one warning, no `no audio arrived ... permission` text | `signal on tap channels: 1,2 \| on device input channels (noise counts): 1,2,3,31,32 \| device preferred stereo pair: 1,2`, then ONE `warning: tap buffer 1 was picked by stream id diff: signal on tap channels 1,2, outside --source-channels 3,4. ...`. The order of the warnings is fixed |
+| Gain, automatic tap | `--meter`, QuickTime Player plays the -20 dBFS 1 kHz sine | 1, by stream id diff (`aggregate input buffers: [32, 32], tap in buffer 1`) | not reported | no (expected: none) | `tap format: 48000 Hz, 32 channels`. Meter every second: `tap peak -20.0 dBFS rms -23.0 dBFS \| out peak -20.0 dBFS rms -23.0 dBFS` (first line -19.9). Unity: the file's peak is -20.0 and a sine has rms 3 dB under its peak |
+| Gain, stereo mixdown | `--tap-mode stereo-mixdown --meter`, the -20 dBFS sine | 1 (`aggregate input buffers: [32, 2], tap in buffer 1`), `stream id diff: not used (stereo-mixdown keeps the tap in the composition ...)` | not reported | no, as designed (the warning does not check gain) | `tap format: 48000 Hz, 2 channels`. Meter every second: `tap peak -44.1 dBFS rms -47.1 dBFS \| out peak -44.1 dBFS rms -47.1 dBFS`. That is -24.1 dB against the file, the 1/16 loss (-24.08 dB) |
+| Forced right buffer, Spotify | `--tap-buffer 1 --meter` | 1, by `--tap-buffer`, the same buffer as the stream id diff choice | not reported | no | `tap` and `out` peak equal on every line (unity), peak -32.4 to -35.9 dBFS for the music |
+| Right pick again, Spotify | `--meter` | 1 | not reported | no | `tap` and `out` peak equal on every line (unity), peak -32.4 to -35.9 dBFS for the music |
+
+Not measured:
+
+- Ctrl-C restores the normal output (the app plays on its normal output again). The owner did
+  not report this listening test.
+
+A stereo input device (layout `[2, 2]`, for example a USB stereo interface). In device stream mode
+the stream id diff names the tap buffer when exactly one input stream appears with the tap and the
+old streams keep their order. The unit tests cover this with fakes: `[2, 2]` with a diff index
+works, a changed stream list fails the diff, and the route is then refused with the device name and
+the layout unless `--tap-buffer` names the buffer. The stereo mixdown mode does not use the diff and
+needs `--tap-buffer` on such a device. Not proven: that the IO buffers of a real `[2, 2]` device
+follow the stream list order, no such device was run.
+
+Runs still to measure. Use the exact commands below, release build, QuickTime Player at full app
+volume, the system volume unchanged. Expected on a unity tap: `tap peak` -20.0 dBFS (within 0.2 dB)
+for the -20 dBFS file and -6.0 for the -6 dBFS file. Do not fill a cell that was not measured.
+
+```sh
+swift build -c release
+.build/release/audio-router-proto devices
+.build/release/audio-router-proto apps
+```
+
+1. The -20 dBFS run on the X-USB (measured in the second round, see the tables). Set the macOS
+   default output to the X-USB, play `sine-1khz-minus20dbfs.wav`.
+
+   ```sh
+   .build/release/audio-router-proto route --bundle-id <id> \
+     --device <x-usb uid> --channels 1,2 --meter
+   ```
+
+2. The MacBook speakers, a stereo output device. Set the speakers as the macOS default output and
+   use the speakers' uid from `devices`. Run once with the -6 dBFS file and once with the -20 dBFS
+   file, each in `--tap-mode device-stream` and once in `--tap-mode stereo-mixdown`.
+
+   ```sh
+   .build/release/audio-router-proto route --bundle-id <id> \
+     --device <speakers uid> --channels 1,2 --meter
+   .build/release/audio-router-proto route --bundle-id <id> \
+     --device <speakers uid> --channels 1,2 --meter --tap-mode stereo-mixdown
+   ```
+
+3. A long run for drift on the X-USB, device stream mode, at least 60 minutes with the -6 dBFS
+   file in a loop. Look for dropouts or crackle, a `tap peak` that moves away from -6.0, and the
+   `frames` average at the start and at the end.
+
+   ```sh
+   .build/release/audio-router-proto route --bundle-id <id> \
+     --device <x-usb uid> --channels 1,2 --meter 2>&1 | tee drift.log
+   ```
+
+| Run | Signal line | Warning printed (yes or no, text) | `tap peak` | `tap rms` | Notes |
+| --- | ----------- | --------------------------------- | ---------- | --------- | ----- |
+| X-USB, -20 dBFS, device-stream | not reported | no | -20.0 | -23.0 | automatic tap (stream id diff), `--channels 3,4`, unity |
+| MacBook speakers, -6 dBFS, device-stream | | | | | |
+| MacBook speakers, -20 dBFS, device-stream | | | | | |
+| MacBook speakers, -6 dBFS, stereo-mixdown | | | | | |
+| MacBook speakers, -20 dBFS, stereo-mixdown | | | | | |
+| X-USB, 60 minutes, start | | | | | `frames` average: |
+| X-USB, 60 minutes, end | | | | | `frames` average, dropouts: |
+| Stereo input device (`[2, 2]`), device-stream | | | | | device name, buffers, stream ids A and B: |
+
 Results to fill in, one row per run. Use release builds, QuickTime Player at full app volume, the
 system volume unchanged, and the sine files from the earlier steps. Expected on a unity tap: `tap
 peak` -6.0 and -20.0 dBFS (within 0.2 dB). Expected on the old mixdown on the X-USB: about -30.1
@@ -390,10 +515,11 @@ uid from `devices` as `--device`. The app must already play to that device, see 
 | Default output of macOS | `--tap-mode` | Sine | `tap format` line | Tap buffer line | Signal line | `tap peak` | `tap rms` | Unity within 0.2 dB |
 | ----------------------- | ------------ | ---- | ----------------- | --------------- | ----------- | ---------- | --------- | ------------------- |
 | X-USB (32 channels) | stereo-mixdown | -6 dBFS | 2 channels (first run, buffers `[32, 2]`) | the only buffer of the tap shape | | -30.1 | -33.1 | no (-24.1 dB) |
-| X-USB (32 channels) | stereo-mixdown | -20 dBFS | | | | | | |
+| X-USB (32 channels) | stereo-mixdown | -20 dBFS | 48000 Hz, 2 channels (buffers `[32, 2]`) | tap in buffer 1, stream id diff not used | not reported | -44.1 | -47.1 | no (-24.1 dB, the 1/16 loss) |
 | X-USB (32 channels) | device-stream, `--tap-buffer 1` | -6 dBFS | 48000 Hz, 32 channels, interleaved | named by `--tap-buffer`, buffers `[32, 32]`, tap in buffer 1 | tap `1,2`, device `1,2,3,31,32` (noise), preferred pair `1,2` | -6.0 | -9.0 | yes |
 | X-USB (32 channels) | device-stream, `--tap-buffer 1` | -20 dBFS | | | | | | |
 | X-USB (32 channels) | device-stream, no `--tap-buffer` | -6 dBFS | 48000 Hz, 32 channels, interleaved (tap list set OSStatus 0, sub tap class not available) | `by stream id diff`, tap in buffer 1, A `[239]`, B `[239, 241]` | tap `1,2`, device `1,2,3,31,32` (noise), preferred pair `1,2` | -6.0 | -9.0 | yes |
+| X-USB (32 channels) | device-stream, no `--tap-buffer` | -20 dBFS | 48000 Hz, 32 channels | `by stream id diff`, buffers `[32, 32]`, tap in buffer 1 | not reported | -20.0 | -23.0 | yes |
 | MacBook speakers (2 channels) | stereo-mixdown | -6 dBFS | | | | | | |
 | MacBook speakers (2 channels) | stereo-mixdown | -20 dBFS | | | | | | |
 | MacBook speakers (2 channels) | device-stream | -6 dBFS | | | | | | |
@@ -402,10 +528,11 @@ uid from `devices` as `--device`. The app must already play to that device, see 
 - Does Spotify's stereo land on tap channels 1,2 in `device-stream` mode (signal line):
 - Does the tap side of the signal line show exactly 1,2 (device side is noise and may show anything):
 - The `probe:` lines (stream owners, tap owned objects, tap list settable):
-- Which mode is unity on the X-USB: `device-stream` (measured, -6.0 dBFS). Does it hold on the
-  MacBook speakers, and at -20 dBFS: not measured yet.
-- Still unmeasured: the -20 dBFS file on both modes, the MacBook speaker rows, a long run for
-  drift, a device with several input streams.
+- Which mode is unity on the X-USB: `device-stream` (measured, -6.0 and -20.0 dBFS). The
+  stereo mixdown reads -24.1 dB at both levels. Does it hold on the MacBook speakers: not
+  measured yet.
+- Still unmeasured: the MacBook speaker rows, a long run for drift, a device with several input
+  streams, a stereo input device, `--tap-buffer 1` with the -20 dBFS file.
 
 How to run the table. QuickTime Player cannot read from `/private/tmp`, so copy the sine files to
 the Desktop first:

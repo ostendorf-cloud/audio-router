@@ -153,6 +153,108 @@ struct RouteSessionTests {
         #expect(backend.calls.isEmpty)
     }
 
+    // MARK: Tap check in the live gate
+
+    /// The live sequence for a buffer that is silent on the source pair: the IO proc flags device
+    /// input channel 1 as active, but `render` copies only zeros, so the signal flag stays off. The
+    /// wait then ends in `.silent`, never in `.present`.
+    @Test func aBufferSilentOnThePairStillGetsTheSpecificWarning() throws {
+        let backend = FakeBackend()
+        let session = RouteSession(backend: backend, plan: plan)
+        try session.start()
+        backend.setActive([0])  // device input 1 active, the tap buffer shows nothing
+        #expect(session.signalState(elapsed: 1) == .waiting)
+        #expect(session.tapReport(for: .waiting) == nil)
+        let state = session.signalState(elapsed: 10)
+        #expect(state == .silent)
+        let report = try #require(session.tapReport(for: state))
+        let warning = try #require(report.warning)
+        #expect(warning.contains("no signal on the tap, but on device input channels 1"))
+        #expect(warning.contains("--tap-buffer <n>"))
+    }
+
+    @Test func aSilentWaitWithNothingActiveHasNoSpecificWarning() throws {
+        let backend = FakeBackend()
+        let session = RouteSession(backend: backend, plan: plan)
+        try session.start()
+        let report = try #require(session.tapReport(for: .silent))
+        #expect(report.warning == nil)
+    }
+
+    @Test func theSignalPathStillReports() throws {
+        let backend = FakeBackend()
+        let session = RouteSession(backend: backend, plan: plan)
+        try session.start()
+        backend.setSignal(true)
+        backend.setActive([32, 33])
+        let report = try #require(session.tapReport(for: session.signalState(elapsed: 0)))
+        #expect(report.warning == nil)
+        session.stop()
+        #expect(session.tapReport(for: .present) == nil, "stopped")
+    }
+
+    // MARK: Silent wait output, the live flow of run 3
+
+    private func silentOutput(active: [Int]) throws -> TapCheck.SilentWaitOutput {
+        let backend = FakeBackend()
+        backend.setInfo(FakeBackend.wideInfo)
+        let session = RouteSession(backend: backend, plan: plan)
+        try session.start()
+        backend.setActive(active)
+        #expect(session.signalState(elapsed: 10) == .silent)
+        return session.silentWaitOutput()
+    }
+
+    /// The app plays on tap channels 3,4 while --source-channels is 1,2: the wait ends silent, the
+    /// capture works. The permission hint would name a wrong cause.
+    @Test func silentWaitWithAnotherPairActivePrintsTheSpecificWarningOnly() throws {
+        let output = try silentOutput(active: [34, 35])
+        #expect(output.activity != nil)
+        #expect(output.warnings.count == 1)
+        #expect(output.warnings[0].contains("signal on tap channels 3,4, outside --source-channels 1,2"))
+        #expect(!output.warnings.joined().contains("permission"))
+    }
+
+    @Test func silentWaitWithNothingActivePrintsThePermissionWarningOnly() throws {
+        let output = try silentOutput(active: [])
+        #expect(output.warnings.count == 1)
+        #expect(output.warnings[0].contains("no audio arrived in 10 seconds"))
+        #expect(output.warnings[0].contains("permission may be missing"))
+        #expect(!output.warnings[0].contains("tap buffer"))
+    }
+
+    @Test func silentWaitWithOnlyADeviceInputActivePrintsTheSpecificWarningThenTheShortHint() throws {
+        let output = try silentOutput(active: [0])
+        try #require(output.warnings.count == 2)
+        #expect(output.warnings[0].contains("no signal on the tap, but on device input channels 1"))
+        #expect(output.warnings[1] == Formatting.permissionHint)
+        #expect(!output.warnings.joined().contains("no audio arrived"))
+    }
+
+    @Test func theSignalPathNeverPrintsThePermissionHint() throws {
+        let backend = FakeBackend()
+        backend.setInfo(FakeBackend.wideInfo)
+        let session = RouteSession(backend: backend, plan: plan)
+        try session.start()
+        backend.setSignal(true)
+        backend.setActive([34, 35])
+        #expect(session.signalState(elapsed: 0) == .present)
+        let report = try #require(session.tapReport(for: .present))
+        #expect(report.warning?.contains("outside --source-channels") == true)
+        #expect(!(report.warning ?? "").contains("permission"))
+    }
+
+    @Test func aStoppedSessionFallsBackToThePermissionWarning() throws {
+        let backend = FakeBackend()
+        let session = RouteSession(backend: backend, plan: plan)
+        try session.start()
+        session.stop()
+        let output = session.silentWaitOutput()
+        #expect(output.activity == nil)
+        #expect(output.warnings.count == 1)
+        #expect(output.warnings[0].contains("no audio arrived"))
+    }
+
     // MARK: Silence
 
     @Test func signalStateFollowsTheBackend() throws {
