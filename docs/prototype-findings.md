@@ -329,6 +329,17 @@ the route falls back to the rules above, which refuse a symmetric layout and nee
 If setting the tap list or the drift compensation fails, the aggregate is destroyed and created
 again with the tap in its composition, as before. `--tap-buffer <n>` always wins.
 
+First run of this method on the X32 (without `--tap-buffer`): the route was refused as ambiguous
+and printed no `stream id diff:` line, because the diagnostics were only printed on success and the
+failure of the diff step was swallowed. Now every step prints (`stream id diff step:` lines:
+aggregate created with the sub device only and streams A, tap list set with its OSStatus, sub taps,
+drift property with its OSStatus, streams B after the wait) and the outcome line `stream id diff:
+used, tap at index k` or `not used (reason)` always appears, also before a refusal, and the
+refusal text carries it. The header (`AudioHardware.h`) describes `kAudioAggregateDevicePropertyTapList`
+only as a CFArray of tap UUID strings and says nothing about the dictionary form, the scope, a
+stopped device or an asynchronous stream list. The streams are therefore polled for up to 1 s in
+steps of 50 ms after the tap list was set. The reason of the first failure is not yet known.
+
 What is not proven. The header does not say that the buffers of the IO proc follow the order of
 `kAudioDevicePropertyStreams`, and it does not describe the order of operations (tap list set
 while the aggregate exists and is stopped, whether stream IDs of the sub device stay). The channel

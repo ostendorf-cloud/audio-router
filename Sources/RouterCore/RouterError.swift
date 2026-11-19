@@ -11,6 +11,8 @@ public enum RouterError: Error, Equatable, CustomStringConvertible {
     case unsupportedFormat(String)
     case ambiguousTapStream(device: String, buffers: [Int], tapShape: [Int])
     case unprovableTapOrder(device: String, buffers: [Int], tapShape: [Int])
+    /// A refusal to choose the tap buffer, with the outcome of the stream id diff in the text.
+    case refusedWithDiff(reason: String, diff: String)
     case sessionAlreadyStopped
     case teardownFailed([String])
 
@@ -49,6 +51,8 @@ public enum RouterError: Error, Equatable, CustomStringConvertible {
                 + " cannot prove the order. Refusing to route, a device input could reach the output."
                 + " Name the tap buffer with --tap-buffer <n> (counted from 0). On the X32 the tap was measured"
                 + " in buffer 1 with the stereo mixdown tap ([32, 2]), so --tap-buffer 1 is the measured order."
+        case .refusedWithDiff(let reason, let diff):
+            return "\(reason)\n\(diff)"
         case .sessionAlreadyStopped:
             return "The route was stopped before it started."
         case .teardownFailed(let messages):

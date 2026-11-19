@@ -71,6 +71,21 @@ public enum Formatting {
         ] + info.probes
     }
 
+    /// The lines printed before a refusal to choose the tap buffer: what a successful start
+    /// prints about the tap and the aggregate, the stream id diff steps with the outcome, and the
+    /// probes.
+    public static func refusalDiagnostics(
+        tap: StreamFormatInfo, inputBuffers: [Int], inputStreams: [StreamFormatInfo], tapIsMixdown: Bool,
+        tapIsExclusive: Bool, diff: StreamDiffLog, probes: [String]
+    ) -> [String] {
+        [
+            "tap format: \(stream(tap))",
+            "aggregate input buffers: \(inputBuffers), tap buffer not chosen",
+            "aggregate input streams: " + inputStreams.map(stream).joined(separator: "; "),
+            "tap description: mixdown \(tapIsMixdown), exclusive \(tapIsExclusive)",
+        ] + diff.lines + probes
+    }
+
     static func choice(_ choice: TapBufferChoice) -> String {
         switch choice {
         case .uniqueShape:
