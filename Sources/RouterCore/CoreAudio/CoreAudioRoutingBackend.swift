@@ -66,6 +66,10 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
     private let lock = NSLock()  // guards the two fields below, control path only
     private var started: [Int: IOState] = [:]
     private var nextHandle = 1
+    /// Input stream IDs of an aggregate before and after the tap joined it. Guarded by `lock`.
+    private var streamLists: [ObjectID: (before: [UInt32], after: [UInt32])] = [:]
+    /// What happened in the stream id diff, per aggregate. Guarded by `lock`.
+    private var diffLogs: [ObjectID: StreamDiffLog] = [:]
 
     public init() {}
 
@@ -121,8 +125,8 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
         }
     }
 
-    public func createAggregate(deviceUID: String, tap: TapInfo) throws -> ObjectID {
-        let description: [String: Any] = [
+    private func composition(deviceUID: String, tap: TapInfo?) -> [String: Any] {
+        var description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "audio-router",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
             // The target device is the time source. The tap follows it with drift compensation.
@@ -130,18 +134,133 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
             kAudioAggregateDeviceIsPrivateKey: 1,
             kAudioAggregateDeviceIsStackedKey: 0,
             kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: deviceUID]],
-            kAudioAggregateDeviceTapListKey: [
+        ]
+        if let tap {
+            description[kAudioAggregateDeviceTapListKey] = [
                 [
                     kAudioSubTapUIDKey: tap.uid,
                     kAudioSubTapDriftCompensationKey: 1,
                 ]
-            ],
-        ]
+            ]
+        }
+        return description
+    }
+
+    /// Creates the aggregate with the sub device only, reads its input streams, adds the tap
+    /// through `kAudioAggregateDevicePropertyTapList` (the owner's run showed it is settable),
+    /// switches drift compensation on for the sub tap and reads the streams again. The two lists
+    /// go to `startIO`. The header does not describe this order of operations, so any failure
+    /// destroys the aggregate and throws, and `createAggregate` falls back to the tap in the
+    /// composition from the start.
+    ///
+    /// Every step is written to `log`, so a failing step is visible in the start lines and before
+    /// a refusal. The header (AudioHardware.h, `kAudioAggregateDevicePropertyTapList`: "A CFArray
+    /// of CFStrings that contain the UUIDs of all the tap objects") does not say whether the
+    /// stream list updates at once, so the streams are polled for up to one second.
+    private func createAggregateByStreamDiff(
+        deviceUID: String, tap: TapInfo, log: inout StreamDiffLog
+    ) throws -> ObjectID {
         var aggregateID = AudioObjectID(kAudioObjectUnknown)
+        let bare = composition(deviceUID: deviceUID, tap: nil) as CFDictionary
         try CoreAudioProperty.check(
-            AudioHardwareCreateAggregateDevice(description as CFDictionary, &aggregateID),
+            AudioHardwareCreateAggregateDevice(bare, &aggregateID),
+            "AudioHardwareCreateAggregateDevice (create aggregate with the sub device only)"
+        )
+        do {
+            func streams() throws -> [AudioObjectID] {
+                try CoreAudioProperty.array(
+                    aggregateID, kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeInput, initial: 0)
+            }
+            let before = try streams()
+            log.step("aggregate \(aggregateID) created with the sub device only, input streams A \(before)")
+            var address = CoreAudioProperty.address(kAudioAggregateDevicePropertyTapList)
+            // The property data is one CFArrayRef.
+            let list = [tap.uid] as CFArray
+            var listRef = Unmanaged.passUnretained(list)
+            let setStatus = withExtendedLifetime(list) {
+                withUnsafeMutablePointer(to: &listRef) {
+                    AudioObjectSetPropertyData(
+                        aggregateID, &address, 0, nil, UInt32(MemoryLayout<Unmanaged<CFArray>>.size), $0)
+                }
+            }
+            log.step("set kAudioAggregateDevicePropertyTapList ('tap#') to [\(tap.uid)]: OSStatus \(setStatus)")
+            try CoreAudioProperty.check(setStatus, "set kAudioAggregateDevicePropertyTapList ('tap#')")
+            let subTaps: [AudioObjectID] = try CoreAudioProperty.array(
+                aggregateID, kAudioAggregateDevicePropertySubTapList, initial: 0)
+            log.step("sub taps (kAudioAggregateDevicePropertySubTapList 'atap'): \(subTaps)")
+            guard !subTaps.isEmpty else {
+                throw RouterError.unsupportedFormat(
+                    "the aggregate has no sub tap (kAudioAggregateDevicePropertySubTapList) after the tap list was set")
+            }
+            // Read only: what kind of object are the ids, for the next run to explain a bad object.
+            func classText(_ id: AudioObjectID) -> String {
+                guard
+                    let value: UInt32 = try? CoreAudioProperty.value(
+                        id, kAudioObjectPropertyClass, initial: UInt32(0))
+                else { return "\(id) class not available" }
+                return "\(id) class '\(fourCC(Int32(bitPattern: value)))'"
+            }
+            log.step(
+                "object classes (kAudioObjectPropertyClass): aggregate \(classText(aggregateID)), "
+                    + "tap \(classText(tap.objectID)), sub taps " + subTaps.map(classText).joined(separator: ", "))
+            if StreamDiffPlan.setsDrift(mode: tap.mode) {
+                for subTap in subTaps {
+                    var drift = address
+                    drift.mSelector = kAudioSubTapPropertyDriftCompensation
+                    var on: UInt32 = 1
+                    let status = AudioObjectSetPropertyData(
+                        subTap, &drift, 0, nil, UInt32(MemoryLayout<UInt32>.size), &on)
+                    log.step(
+                        "set kAudioSubTapPropertyDriftCompensation ('drft') on sub tap \(subTap): OSStatus \(status)")
+                    if status != noErr {
+                        log.driftNotSet(
+                            reason: "\(RouterError.coreAudio(operation: "set 'drft'", status: status))")
+                    }
+                }
+            } else {
+                log.step(StreamDiffPlan.driftSkipped)
+            }
+            // The stream list may refresh asynchronously. Poll up to 1 s in steps of 50 ms.
+            var after = try streams()
+            var waited = 0
+            while after == before && waited < 1000 {
+                usleep(50_000)
+                waited += 50
+                after = try streams()
+            }
+            log.step("input streams B after \(waited) ms: \(after)")
+            lock.withLock { streamLists[aggregateID] = (before, after) }
+            return aggregateID
+        } catch {
+            _ = AudioHardwareDestroyAggregateDevice(aggregateID)
+            throw error
+        }
+    }
+
+    public func createAggregate(deviceUID: String, tap: TapInfo) throws -> ObjectID {
+        var log = StreamDiffLog()
+        var diffID: ObjectID?
+        if StreamDiffPlan.usesDiff(mode: tap.mode) {
+            do {
+                diffID = try createAggregateByStreamDiff(deviceUID: deviceUID, tap: tap, log: &log)
+            } catch {
+                log.fail("\(error)")
+            }
+        } else {
+            log.fail("stereo-mixdown keeps the tap in the composition, with the drift compensation key")
+        }
+        if let diffID {
+            lock.withLock { diffLogs[diffID] = log }
+            return diffID
+        }
+        log.step("created the aggregate with the tap in its composition, no diff possible")
+        var aggregateID = AudioObjectID(kAudioObjectUnknown)
+        let full = composition(deviceUID: deviceUID, tap: tap) as CFDictionary
+        try CoreAudioProperty.check(
+            AudioHardwareCreateAggregateDevice(full, &aggregateID),
             "AudioHardwareCreateAggregateDevice (create aggregate)"
         )
+        lock.withLock { diffLogs[aggregateID] = log }
         return aggregateID
     }
 
@@ -163,9 +282,46 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
                 aggregate, scope: kAudioObjectPropertyScopeInput))
         let deviceInputs = try? CoreAudioProperty.channelsPerBuffer(
             device.objectID, scope: kAudioObjectPropertyScopeInput)
-        let (tapBuffers, choice) = try ChannelMapper.chooseTapBuffers(
-            in: input, tapChannels: tap.channelCount, interleaved: tap.isInterleaved, deviceName: device.name,
-            deviceInputBuffers: deviceInputs, override: tapBuffer)
+        // The stream id diff, when createAggregate could take it. A failure only means the old
+        // rules decide, and the reason is printed.
+        var diffBuffer: Int?
+        var diffLog = lock.withLock { diffLogs[aggregate] } ?? StreamDiffLog()
+        if let lists = lock.withLock({ streamLists[aggregate] }) {
+            do {
+                let formats = try CoreAudioProperty.streamFormats(aggregate, scope: kAudioObjectPropertyScopeInput)
+                let index = try ChannelMapper.tapBufferByStreamDiff(
+                    before: lists.before, after: lists.after, streamChannels: formats.map(\.channels),
+                    inputBuffers: input.channelsPerBuffer, tapChannels: tap.channelCount,
+                    interleaved: tap.isInterleaved,
+                    currentStreams: try CoreAudioProperty.array(
+                        aggregate, kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeInput, initial: 0))
+                diffBuffer = index
+                diffLog.used(index: index)
+            } catch {
+                diffLog.fail("\(error)")
+            }
+        }
+        let probeLines = tap.mode == .deviceStream ? Self.probes(aggregate: aggregate, tap: tap) : []
+        let tapBuffers: Range<Int>
+        let choice: TapBufferChoice
+        do {
+            (tapBuffers, choice) = try ChannelMapper.chooseTapBuffers(
+                in: input, tapChannels: tap.channelCount, interleaved: tap.isInterleaved,
+                deviceName: device.name, deviceInputBuffers: deviceInputs, override: tapBuffer,
+                streamDiffBuffer: diffBuffer)
+        } catch {
+            // Print what a successful start prints, then refuse with the diff outcome in the text.
+            let lines = Formatting.refusalDiagnostics(
+                tap: StreamFormatInfo(
+                    sampleRate: tap.sampleRate, channels: tap.channelCount, interleaved: tap.isInterleaved),
+                inputBuffers: input.channelsPerBuffer,
+                inputStreams: (try? CoreAudioProperty.streamFormats(
+                    aggregate, scope: kAudioObjectPropertyScopeInput)) ?? [],
+                tapIsMixdown: tap.isMixdown, tapIsExclusive: tap.isExclusive,
+                diff: diffLog, probes: probeLines)
+            Diagnostics.write(lines.joined(separator: "\n") + "\n", to: STDOUT_FILENO)
+            throw RouterError.refusedWithDiff(reason: "\(error)", diff: diffLog.outcome)
+        }
         let source = ChannelLayout(channelsPerBuffer: Array(input.channelsPerBuffer[tapBuffers]))
         let destination = ChannelLayout(
             channelsPerBuffer: try CoreAudioProperty.channelsPerBuffer(
@@ -213,7 +369,7 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
             tapMode: tap.mode,
             tapIsMixdown: tap.isMixdown,
             tapIsExclusive: tap.isExclusive,
-            probes: tap.mode == .deviceStream ? Self.probes(aggregate: aggregate, tap: tap) : [],
+            probes: diffLog.lines + probeLines,
             preferredStereo: Self.preferredStereo(device.objectID)
         )
 
@@ -327,6 +483,10 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
     }
 
     public func destroyAggregate(_ aggregate: ObjectID) throws {
+        lock.withLock {
+            _ = streamLists.removeValue(forKey: aggregate)
+            _ = diffLogs.removeValue(forKey: aggregate)
+        }
         try CoreAudioProperty.check(
             AudioHardwareDestroyAggregateDevice(aggregate),
             "AudioHardwareDestroyAggregateDevice (destroy aggregate)"

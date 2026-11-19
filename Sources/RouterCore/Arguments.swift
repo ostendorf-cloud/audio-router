@@ -16,7 +16,7 @@ public struct RouteArguments: Equatable, Sendable {
 
     public init(
         bundleID: String, deviceUID: String, channels: ChannelPair, meter: Bool = false,
-        tapMode: TapMode = .stereoMixdown, sourceChannels: ChannelPair = .firstPair, tapBuffer: Int? = nil
+        tapMode: TapMode = .standard, sourceChannels: ChannelPair = .firstPair, tapBuffer: Int? = nil
     ) {
         self.bundleID = bundleID
         self.deviceUID = deviceUID
@@ -45,10 +45,12 @@ public enum ArgumentParser {
                                    [--source-channels <n>,<n+1>] [--tap-buffer <n>]
 
         Channels count from 1. The pair must be two adjacent channels, for example 3,4.
-        --tap-mode picks how the tap is made. The default is stereo-mixdown. device-stream taps the
-        output stream 0 of the device without a mixdown, see docs/prototype-findings.md section 9.
+        --tap-mode picks how the tap is made. The default is device-stream: it taps output stream 0 of the
+        device without a mixdown. stereo-mixdown loses 24 dB on a 32 channel device, see
+        docs/prototype-findings.md section 9.
         --source-channels names the tap channels that carry the app, default 1,2.
         --tap-buffer forces the index (from 0) of the first tap buffer in the aggregate's input list.
+        Without it the tap stream is found by the stream ids, or the route is refused when that fails.
         --meter prints the peak and RMS level of the tap and of the output in dBFS once a second to stdout.
         """
 
@@ -154,7 +156,7 @@ public enum ArgumentParser {
             deviceUID: deviceUID,
             channels: try parseChannels(values["--channels", default: ""]),
             meter: meter,
-            tapMode: try values["--tap-mode"].map(parseTapMode) ?? .stereoMixdown,
+            tapMode: try values["--tap-mode"].map(parseTapMode) ?? .standard,
             sourceChannels: try values["--source-channels"].map { try parseChannels($0, flag: "--source-channels") }
                 ?? .firstPair,
             tapBuffer: try values["--tap-buffer"].map(parseTapBuffer)

@@ -233,8 +233,10 @@ What the header does not say, so it is not verified:
   pair to copy.
 - That the gain is unity. The header says nothing about gain, in either mode.
 
-So the header evidence for unity is not solid. The default stays `stereo-mixdown` and the owner
-flips it after the measurement below. Both modes run with the same command:
+The header evidence for unity was not solid, so the first version kept `stereo-mixdown` as the
+default. The owner then measured it (see the results below): `device-stream` reads unity on the
+X32. `device-stream` is now the default (`TapMode.standard`) and `stereo-mixdown` stays as the
+alternative. Both modes run with the same command:
 
 ```sh
 .build/release/audio-router-proto route --bundle-id <id> --device <uid> --channels 1,2 --meter --tap-mode stereo-mixdown
@@ -302,13 +304,66 @@ never throw, an error prints `not available`:
 
 Look for a stream ID that appears in the tap's owned objects, or an owner of a stream that equals
 the tap object ID. That would name the tap's stream and allow an order free choice. It is
-evidence only, nothing relies on it yet. Not verified.
+evidence only.
 
-Planned order free fix, not implemented. Create the aggregate with the sub device only and read
-`kAudioDevicePropertyStreams` (input scope). Add the tap and read it again. The new stream IDs
-are the tap's. Unverified assumptions: the aggregate accepts a changed tap list while it exists
-(the settable probe shows part of this), the stream IDs of the sub device stay the same, and the
-new IDs map to buffer positions in the same order as the IO proc's buffer list.
+Measured by the owner on the X32 (device-stream, `--tap-buffer 1`): aggregate object 237, tap
+object 236, input streams `239,240`, both streams owned by 237 (the aggregate), the tap owns no
+objects, the aggregate tap list is settable. So the tap does not own its stream and no owner
+relation names it. The settable tap list led to the stream id diff below.
+
+### Stream id diff (order free choice)
+
+`createAggregate` creates the aggregate with the sub device only and reads
+`kAudioDevicePropertyStreams` (input scope, IDs A). It then sets
+`kAudioAggregateDevicePropertyTapList` (a CFArray of the tap uid, the type in `AudioHardware.h`),
+and reads the streams again (IDs B). The one new ID is the tap's stream. Drift compensation is
+skipped in `device-stream` mode (see the second run below), the composition key for it is not
+available when the list is set afterwards.
+`ChannelMapper.tapBufferByStreamDiff` checks: exactly one new stream, the old streams keep their
+order, the channels per stream equal the buffer list, the new stream has the tap's channel count,
+the tap is interleaved. Its index in B is the tap buffer. The route prints `tap buffer: by stream
+id diff` and a `stream id diff:` line with the lists.
+
+Any failure (an error, no new stream, several, a mismatch, a non interleaved tap) is not fatal:
+the route falls back to the rules above, which refuse a symmetric layout and need `--tap-buffer`.
+If setting the tap list fails, the aggregate is destroyed and created again with the tap in its
+composition, as before. A failed drift compensation set only logs and does not stop the diff.
+`--tap-buffer <n>` always wins.
+
+First run of this method on the X32 (without `--tap-buffer`): the route was refused as ambiguous
+and printed no `stream id diff:` line, because the diagnostics were only printed on success and the
+failure of the diff step was swallowed. Now every step prints (`stream id diff step:` lines:
+aggregate created with the sub device only and streams A, tap list set with its OSStatus, sub taps,
+drift property with its OSStatus, streams B after the wait) and the outcome line `stream id diff:
+used, tap at index k` or `not used (reason)` always appears, also before a refusal, and the
+refusal text carries it. The header (`AudioHardware.h`) describes `kAudioAggregateDevicePropertyTapList`
+only as a CFArray of tap UUID strings and says nothing about the dictionary form, the scope, a
+stopped device or an asynchronous stream list. The streams are therefore polled for up to 1 s in
+steps of 50 ms after the tap list was set.
+
+Second run: streams A were `[239]`, the tap list set returned OSStatus 0 and the aggregate had one
+sub tap (4403). Setting `kAudioSubTapPropertyDriftCompensation` on 4403 failed with 560947818
+(`!obj`, bad object), which aborted the diff. Now the drift step is skipped in `device-stream`
+mode: the tap is of the output stream of the same device that is the aggregate's main sub device,
+so there is one hardware clock. This is reasoning, not header text: `AudioHardware.h` says only
+that `kAudioSubTapDriftCompensationKey` means "drift compensation is enabled for the AudioSubTap"
+and does not say for which clock. No long run was measured, so drift over time is not excluded.
+The stereo mixdown keeps the tap in the composition with the drift key. A failed drift set no
+longer stops the diff. A `kAudioObjectPropertyClass` step line names the class of the aggregate,
+the tap and the sub tap, to explain the bad object.
+
+What is not proven. The header does not say that the buffers of the IO proc follow the order of
+`kAudioDevicePropertyStreams`, and it does not describe the order of operations (tap list set
+while the aggregate exists and is stopped, whether stream IDs of the sub device stay). The channel
+count check cannot tell two streams with the same count apart, as on the X32 (`[32, 32]`). Only
+a run proves the index. Measured on the X32 without `--tap-buffer`: streams A `[239]`, tap list
+set with OSStatus 0, sub tap `[4446]` (its class is not available, the id is not a settable
+object), drift skipped, streams B after 0 ms `[239, 241]`, `stream id diff: used, tap at index 1`,
+`tap buffer: by stream id diff`, `tap peak` -6.0 dBFS, rms -9.0 dBFS, signal on tap channels
+exactly `1,2`. That is the same buffer the `--tap-buffer 1` run used. This proves it for one
+device only. Not measured: the -20 dBFS file, the MacBook speakers or any other stereo device, a
+long run for drift, a device with several input streams.
+Not testable here: the Core Audio calls (the tests cover the decision logic with fakes).
 
 Other limits, stated plainly:
 
@@ -334,10 +389,11 @@ uid from `devices` as `--device`. The app must already play to that device, see 
 
 | Default output of macOS | `--tap-mode` | Sine | `tap format` line | Tap buffer line | Signal line | `tap peak` | `tap rms` | Unity within 0.2 dB |
 | ----------------------- | ------------ | ---- | ----------------- | --------------- | ----------- | ---------- | --------- | ------------------- |
-| X-USB (32 channels) | stereo-mixdown | -6 dBFS | | | | | | |
+| X-USB (32 channels) | stereo-mixdown | -6 dBFS | 2 channels (first run, buffers `[32, 2]`) | the only buffer of the tap shape | | -30.1 | -33.1 | no (-24.1 dB) |
 | X-USB (32 channels) | stereo-mixdown | -20 dBFS | | | | | | |
-| X-USB (32 channels) | device-stream | -6 dBFS | | | | | | |
-| X-USB (32 channels) | device-stream | -20 dBFS | | | | | | |
+| X-USB (32 channels) | device-stream, `--tap-buffer 1` | -6 dBFS | 48000 Hz, 32 channels, interleaved | named by `--tap-buffer`, buffers `[32, 32]`, tap in buffer 1 | tap `1,2`, device `1,2,3,31,32` (noise), preferred pair `1,2` | -6.0 | -9.0 | yes |
+| X-USB (32 channels) | device-stream, `--tap-buffer 1` | -20 dBFS | | | | | | |
+| X-USB (32 channels) | device-stream, no `--tap-buffer` | -6 dBFS | 48000 Hz, 32 channels, interleaved (tap list set OSStatus 0, sub tap class not available) | `by stream id diff`, tap in buffer 1, A `[239]`, B `[239, 241]` | tap `1,2`, device `1,2,3,31,32` (noise), preferred pair `1,2` | -6.0 | -9.0 | yes |
 | MacBook speakers (2 channels) | stereo-mixdown | -6 dBFS | | | | | | |
 | MacBook speakers (2 channels) | stereo-mixdown | -20 dBFS | | | | | | |
 | MacBook speakers (2 channels) | device-stream | -6 dBFS | | | | | | |
@@ -346,9 +402,10 @@ uid from `devices` as `--device`. The app must already play to that device, see 
 - Does Spotify's stereo land on tap channels 1,2 in `device-stream` mode (signal line):
 - Does the tap side of the signal line show exactly 1,2 (device side is noise and may show anything):
 - The `probe:` lines (stream owners, tap owned objects, tap list settable):
-- Which mode is unity on the X-USB, and does it hold on the MacBook speakers:
-- If `stereo-mixdown` is not unity and `device-stream` is, flip the default in `Arguments.swift`
-  (`RouteArguments.init` and `parseRoute`) and in the usage text.
+- Which mode is unity on the X-USB: `device-stream` (measured, -6.0 dBFS). Does it hold on the
+  MacBook speakers, and at -20 dBFS: not measured yet.
+- Still unmeasured: the -20 dBFS file on both modes, the MacBook speaker rows, a long run for
+  drift, a device with several input streams.
 
 How to run the table. QuickTime Player cannot read from `/private/tmp`, so copy the sine files to
 the Desktop first:
