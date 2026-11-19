@@ -17,7 +17,7 @@ struct RoutePlannerTests {
         device: String = "mixer-uid",
         first: Int = 3
     ) -> RouteArguments {
-        RouteArguments(bundleID: bundleID, deviceUID: device, channels: ChannelPair(first: first))
+        RouteArguments(bundleID: bundleID, deviceUID: device, channels: Samples.pair(first))
     }
 
     @Test func planCoversTheParentAndItsHelpers() throws {

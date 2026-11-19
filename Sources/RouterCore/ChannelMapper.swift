@@ -36,15 +36,60 @@ public struct ChannelRoute: Equatable, Sendable {
     public let sourceChannel: Int
     public let destinationBuffer: Int
     public let destinationChannel: Int
+
+    public init(sourceBuffer: Int, sourceChannel: Int, destinationBuffer: Int, destinationChannel: Int) {
+        self.sourceBuffer = sourceBuffer
+        self.sourceChannel = sourceChannel
+        self.destinationBuffer = destinationBuffer
+        self.destinationChannel = destinationChannel
+    }
 }
 
 public enum ChannelMapper {
+    /// Finds the buffers of the tap inside the input side of the aggregate device.
+    ///
+    /// The target device is a sub device of the aggregate, so its own input channels (a mixer
+    /// can have 32) join the same input buffer list. The headers do not say in which order the
+    /// sub device streams and the tap streams come. This looks for the buffer shape of the tap,
+    /// one buffer with all channels when interleaved, one buffer per channel otherwise. It
+    /// refuses when the shape appears more than once, because then the tap cannot be told from a
+    /// device input and a microphone could be routed to the output.
+    public static func tapBuffers(
+        in input: ChannelLayout,
+        tapChannels: Int,
+        interleaved: Bool
+    ) throws -> Range<Int> {
+        guard tapChannels > 0 else {
+            throw RouterError.unsupportedFormat("the tap has no channels")
+        }
+        let shape = interleaved ? [tapChannels] : Array(repeating: 1, count: tapChannels)
+        let buffers = input.channelsPerBuffer
+        var matches: [Range<Int>] = []
+        var start = 0
+        while start + shape.count <= buffers.count {
+            if Array(buffers[start..<start + shape.count]) == shape {
+                matches.append(start..<start + shape.count)
+            }
+            start += 1
+        }
+        guard let match = matches.first else {
+            throw RouterError.unsupportedFormat(
+                "no input buffer of the aggregate device has the tap shape \(shape), buffers are \(buffers)")
+        }
+        guard matches.count == 1 else {
+            throw RouterError.ambiguousTapStream(buffers: buffers, tapShape: shape)
+        }
+        return match
+    }
+
     /// Builds the routes that copy the source onto the channel pair of the destination. A mono
-    /// source feeds both channels. Runs once when a route starts, never in the callback.
+    /// source feeds both channels. `sourceBufferOffset` is the index of the first tap buffer in
+    /// the full input list. Runs once when a route starts, never in the callback.
     public static func routes(
         source: ChannelLayout,
         destination: ChannelLayout,
-        pair: ChannelPair
+        pair: ChannelPair,
+        sourceBufferOffset: Int = 0
     ) throws -> [ChannelRoute] {
         guard source.totalChannels > 0 else {
             throw RouterError.unsupportedFormat("the tap has no channels")
@@ -59,7 +104,7 @@ public enum ChannelMapper {
                 throw RouterError.unsupportedFormat("the tap has no channel \(offset + 1)")
             }
             return ChannelRoute(
-                sourceBuffer: src.buffer,
+                sourceBuffer: src.buffer + sourceBufferOffset,
                 sourceChannel: src.channel,
                 destinationBuffer: out.buffer,
                 destinationChannel: out.channel
@@ -70,6 +115,8 @@ public enum ChannelMapper {
     /// Copies the routed channels from `input` into `output`. Channels without a route stay as
     /// they are: Core Audio hands the IO proc zeroed output buffers (AudioHardware.h, the
     /// AudioDeviceIOProc documentation), so every other channel of the device stays silent.
+    /// `signalSeen` is set to 1 once a copied sample is not zero. Only this function writes it,
+    /// only the control thread reads it, and one aligned 32 bit word cannot tear.
     ///
     /// Real time contract. This function runs on the audio thread and must not allocate, lock,
     /// log, call into Objective-C or touch a reference counted object. It is held to that by
@@ -81,13 +128,16 @@ public enum ChannelMapper {
     /// - No bounds failure path allocates: a route that does not fit the buffers is skipped.
     /// - The body is `while` loops and pointer arithmetic over Float samples. It calls no generic
     ///   library code such as ranges, `min` or the CoreAudio overlay wrappers.
+    /// - Index arithmetic uses the wrapping operators `&+` and `&*`, so no overflow trap exists.
+    ///   Routes and buffer sizes are checked first, so nothing wraps in practice.
     /// `ChannelMapperTests` runs this very function on in memory buffer lists, and
     /// docs/prototype-findings.md lists the disassembly check the owner can repeat.
     public static func render(
         routes: UnsafePointer<ChannelRoute>,
         routeCount: Int,
         input: UnsafePointer<AudioBufferList>,
-        output: UnsafeMutablePointer<AudioBufferList>
+        output: UnsafeMutablePointer<AudioBufferList>,
+        signalSeen: UnsafeMutablePointer<UInt32>
     ) {
         // AudioBufferList is a header followed by mNumberBuffers AudioBuffers. Plain pointer
         // arithmetic keeps the wrapper types of the CoreAudio overlay out of the audio thread.
@@ -103,8 +153,10 @@ public enum ChannelMapper {
         var index = 0
         while index < routeCount {
             let route = routes[index]
-            index += 1
-            guard route.sourceBuffer < inputCount, route.destinationBuffer < outputCount
+            index &+= 1
+            guard route.sourceBuffer >= 0, route.sourceBuffer < inputCount,
+                route.destinationBuffer >= 0, route.destinationBuffer < outputCount,
+                route.sourceChannel >= 0, route.destinationChannel >= 0
             else { continue }
             let from = inputBuffers[route.sourceBuffer]
             let to = outputBuffers[route.destinationBuffer]
@@ -114,17 +166,21 @@ public enum ChannelMapper {
                 route.sourceChannel < fromChannels, route.destinationChannel < toChannels,
                 let fromData = from.mData, let toData = to.mData
             else { continue }
-            var frames = Int(from.mDataByteSize) / (floatSize * fromChannels)
-            let outFrames = Int(to.mDataByteSize) / (floatSize * toChannels)
+            var frames = Int(from.mDataByteSize) / (floatSize &* fromChannels)
+            let outFrames = Int(to.mDataByteSize) / (floatSize &* toChannels)
             if outFrames < frames { frames = outFrames }
             let source = fromData.assumingMemoryBound(to: Float.self)
             let destination = toData.assumingMemoryBound(to: Float.self)
+            var bits: UInt32 = 0
             var frame = 0
             while frame < frames {
-                destination[frame * toChannels + route.destinationChannel] =
-                    source[frame * fromChannels + route.sourceChannel]
-                frame += 1
+                let sample = source[frame &* fromChannels &+ route.sourceChannel]
+                destination[frame &* toChannels &+ route.destinationChannel] = sample
+                // Drops the sign bit, so -0.0 counts as silence. A bit cast, not a library call.
+                bits |= unsafeBitCast(sample, to: UInt32.self) << 1
+                frame &+= 1
             }
+            if bits != 0 { signalSeen.pointee = 1 }
         }
     }
 }

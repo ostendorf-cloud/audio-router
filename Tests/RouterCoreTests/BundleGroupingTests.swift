@@ -34,6 +34,15 @@ struct BundleGroupingTests {
         #expect(BundleGrouping.parentID(of: "com.example.application", among: all) == "com.example.application")
     }
 
+    @Test(arguments: ["Helper", "HELPER", "helper"])
+    func helperComponentIsMatchedIgnoringCase(component: String) {
+        #expect(BundleGrouping.parentID(of: "com.x.\(component).Renderer", among: []) == "com.x")
+    }
+
+    @Test func aLeadingHelperComponentDoesNotEmptyTheId() {
+        #expect(BundleGrouping.parentID(of: "helper.x", among: []) == "helper.x")
+    }
+
     @Test func shortestPrefixWins() {
         let all: Set<String> = ["a.b", "a.b.c", "a.b.c.d"]
         #expect(BundleGrouping.parentID(of: "a.b.c.d", among: all) == "a.b")

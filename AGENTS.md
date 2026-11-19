@@ -42,7 +42,15 @@ Channels count from 1 and must be two adjacent channels.
 - The IO proc runs on the audio thread. It must not allocate, lock, log or touch a reference counted object.
   `ChannelMapper.render` and `routerIOProc` follow that. Keep new code out of them.
 - Teardown order is fixed: IO proc, aggregate device, tap. `RouteSession` owns it and tests pin it.
-- Every exit path tears down: signal, error, device removed. Add no `exit` that skips `RouteSession.stop`.
+- Every exit path tears down: signal (SIGINT, SIGTERM, SIGHUP), error, device removed.
+  They all go through `Finisher.finish`, which calls `RouteSession.stop` and exits only after it returned.
+  Add no `exit` that skips it. `RouteSession` holds one lock for all of `start` and every teardown, so a
+  second `stop` returns only after the first teardown finished.
+- The tap uses `mutedWhenTapped`, so a stopped IO proc lets the app play again. Do not switch to `muted`
+  without a new decision in the concept.
+- The target device is a sub device of the aggregate. `ChannelMapper.tapBuffers` finds the tap among the
+  device inputs and refuses when that is ambiguous. Keep that check.
+- `SIGTSTP` is ignored on purpose, a suspended process cannot tear down.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.
 - Tests use no network, no audio hardware and no permission. New device or process code goes behind a protocol.
@@ -85,7 +93,9 @@ Press Ctrl-C and confirm the app plays on its normal output again.
   There is no SwiftLint, so no rule set beyond the defaults of `swift format lint`.
   `.swift-format` sets four space indentation and a line length of 120.
 - Swift jobs in `checks.yaml` run on `macos-latest`, because Core Audio only exists on macOS.
-  The version of the runner image and its Xcode are not checked.
+  `swift-tools-version: 6.0` needs Swift 6.0 or later, which means Xcode 16 or later, so the runner image must
+  provide that. Not verified: the Xcode version of `macos-latest` was not checked.
+  Source files avoid syntax from Swift 6.1 and later, such as trailing commas in argument lists.
 - `codeql.yaml` scans the workflow files only (language `actions`). The shared reusable workflow runs on Linux and
   has no Swift build mode, so Swift code is not scanned yet.
 - The workflow pins (`actions/checkout`, `jdx/mise-action` and the shared `ostendorf-cloud/workflows` calls at `v0.2.2`)

@@ -66,7 +66,7 @@ public enum ArgumentParser {
         guard second == first + 1 else {
             throw RouterError.usage("--channels must be two adjacent channels like 3,4, got \(text).")
         }
-        return ChannelPair(first: first)
+        return try ChannelPair(first: first)
     }
 
     private static func rejectExtra(_ rest: [String], command: String) throws {

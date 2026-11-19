@@ -39,6 +39,12 @@ otool -s __TEXT __info_plist -v .build/release/audio-router-proto | head -20
 - Does a denied tap fail with an OSStatus, or does it deliver zeroed audio:
 - Does the error text of the tool point to the right place in System Settings:
 - What changes when the tool runs from a terminal that has no usage string:
+  `Terminal.app` and `iTerm.app` have no `NSAudioCaptureUsageDescription` in their `Info.plist`
+  (checked on the development Mac), `Claude.app`, `Discord.app` and `Visual Studio Code.app` have one.
+- Which app does System Settings list under the audio capture permission after the first run:
+- If the permission is missing, does the tool print the silence warning after 10 seconds
+  ("no audio arrived in 10 seconds"):
+- Does a paused app trigger the same warning (expected: yes, it cannot tell the two apart):
 
 ## 2. Latency added by the route
 
@@ -55,12 +61,20 @@ the same interface, compare the offset in a DAW. Repeat for several buffer sizes
 
 ## 3. Muted tap, system volume and AirPods handover
 
-The tap uses `CATapMuted`. Questions from the concept:
+The tap uses `CATapMutedWhenTapped`, not `CATapMuted`. The header says the app plays normally until
+a client reads the tap, and is silent on its normal output while the read goes on. The choice makes
+every failure where the IO proc stops but the tap lives fail open (audible) instead of silent.
+It supersedes the plain muted tap of the first concept. Questions from the concept:
 
+- With `mutedWhenTapped`, is the app silent on the system output while `route` runs (it must be):
+- Is the app audible again on the system output after `route` stopped (it must be):
+- While `route` is suspended with `kill -STOP <pid>` (the tool ignores `SIGTSTP` for this reason, but
+  `SIGSTOP` cannot be ignored), is the app audible or silent:
+- Does the app flash audible at the start before the muting begins:
 - Does the tapped app disappear from the system volume and from the Control Center audio list:
-- Does the app stay silent on its normal output while the route runs:
 - Does the app play normally again right after `Ctrl-C`:
-- Does it play normally again after `kill -TERM`:
+- Does it play normally again after `kill -TERM` and after `kill -HUP` (or closing the terminal window):
+- Does `Ctrl-Z` do nothing (it is ignored on purpose):
 - Does it play normally again after `kill -KILL` (no teardown can run):
 - Is a tap or an aggregate device left behind after `kill -KILL`:
 - AirPods handover (a call app or another Apple device takes the AirPods): does the tapped
@@ -83,6 +97,8 @@ Run `apps` while the app plays and record what it lists.
 - Does an app that starts a new helper after `route` started keep playing normally on its own
   output, as expected without the process watcher (phase 2):
 - On macOS 26 and later: does `CATapDescription.bundleIDs` cover helper processes:
+- Helper processes that start after `route` started are not tapped in phase 1 (the process watcher
+  is phase 2). Which helpers did start late and kept playing on the normal output:
 
 ## 5. Several target devices
 
@@ -97,6 +113,20 @@ The prototype routes one app to one device per run. Run two instances at once.
 - Do two apps routed to different channel pairs of the same device run together:
 - Any glitch, dropout or clock drift after 30 minutes:
 - Is the target device removed during the run handled cleanly (unplug it):
+
+## 5b. Target device with its own inputs
+
+The target device is a sub device of the aggregate, so its input channels join the aggregate's input
+buffer list. The headers do not say in which order the streams come. The tool finds the tap by its
+buffer shape and refuses when the shape is ambiguous. Test with a device that has inputs, for example
+an X32 with 32 inputs, and make sure no input signal reaches the output.
+
+- Input buffer layout of the aggregate with that device, for example `[32, 2]` or `[2, 32]`
+  (print it by running `route`, the refusal message lists the buffers when it is ambiguous):
+- Did `route` start, or did it refuse with "Cannot tell the tap from the input channels":
+- With a signal on the device inputs and silence in the app: is the routed output silent:
+- With a device whose input is one stereo stream (same shape as the tap): refused as expected:
+- Do all streams of the aggregate pass the 32 bit float check ("not 32 bit float" error otherwise):
 
 ## 6. Lowest macOS version
 

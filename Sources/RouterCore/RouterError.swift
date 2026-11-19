@@ -9,6 +9,8 @@ public enum RouterError: Error, Equatable, CustomStringConvertible {
     case noMatchingProcess(bundleID: String)
     case coreAudio(operation: String, status: Int32)
     case unsupportedFormat(String)
+    case ambiguousTapStream(buffers: [Int], tapShape: [Int])
+    case sessionAlreadyStopped
     case teardownFailed([String])
 
     public var description: String {
@@ -34,6 +36,12 @@ public enum RouterError: Error, Equatable, CustomStringConvertible {
             return text
         case .unsupportedFormat(let message):
             return "Unsupported audio format: \(message)"
+        case .ambiguousTapStream(let buffers, let tapShape):
+            return
+                "Cannot tell the tap from the input channels of the output device: input buffers are \(buffers),"
+                + " the tap is \(tapShape). Refusing to route, a device input could reach the output."
+        case .sessionAlreadyStopped:
+            return "The route was stopped before it started."
         case .teardownFailed(let messages):
             return "Teardown finished with errors: " + messages.joined(separator: "; ")
         }

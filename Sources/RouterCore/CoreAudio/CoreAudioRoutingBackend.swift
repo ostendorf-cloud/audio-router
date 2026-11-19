@@ -9,6 +9,8 @@ import Foundation
 struct IOContext {
     var routes: UnsafeMutablePointer<ChannelRoute>
     var routeCount: Int
+    /// Set to 1 by the IO proc once a non zero sample went through. Read by the control thread.
+    var signalSeen: UnsafeMutablePointer<UInt32>
 }
 
 /// The IO proc. Runs on the audio thread. It only calls `ChannelMapper.render`, whose comment
@@ -28,7 +30,8 @@ private func routerIOProc(
         routes: context.pointee.routes,
         routeCount: context.pointee.routeCount,
         input: input,
-        output: output
+        output: output,
+        signalSeen: context.pointee.signalSeen
     )
     return noErr
 }
@@ -52,8 +55,10 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
         // A stereo mixdown of the processes. Mono sources play on both channels.
         let description = CATapDescription(stereoMixdownOfProcesses: processes)
         description.name = name
-        // The app is silent on its normal output while the tap exists.
-        description.muteBehavior = .muted
+        // The app is silent on its normal output only while a client reads the tap
+        // (CATapDescription.h, CATapMutedWhenTapped). If the IO proc stops but the tap lives, the
+        // app plays normally again instead of staying silent.
+        description.muteBehavior = .mutedWhenTapped
         // Only this process sees the tap, and it dies with the process.
         description.isPrivate = true
 
@@ -64,18 +69,24 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
         do {
             let format: AudioStreamBasicDescription = try CoreAudioProperty.value(
                 tapID, kAudioTapPropertyFormat, initial: AudioStreamBasicDescription())
-            let isFloat = format.mFormatFlags & kAudioFormatFlagIsFloat != 0
-            guard format.mFormatID == kAudioFormatLinearPCM, isFloat, format.mBitsPerChannel == 32
-            else {
+            guard CoreAudioProperty.isFloat32(format) else {
                 throw RouterError.unsupportedFormat(
                     "tap format is \(fourCC(Int32(bitPattern: format.mFormatID))), "
                         + "\(format.mBitsPerChannel) bit, not 32 bit float")
             }
+            // Read the uid back from the tap object. The description's uuid is the fallback.
+            let uid =
+                (try? CoreAudioProperty.string(tapID, kAudioTapPropertyUID)) ?? description.uuid.uuidString
+            return TapInfo(
+                objectID: tapID,
+                uid: uid,
+                channelCount: Int(format.mChannelsPerFrame),
+                isInterleaved: format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
+            )
         } catch {
             _ = AudioHardwareDestroyProcessTap(tapID)
             throw error
         }
-        return TapInfo(objectID: tapID, uid: description.uuid.uuidString)
     }
 
     public func createAggregate(deviceUID: String, tap: TapInfo) throws -> ObjectID {
@@ -102,24 +113,35 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
         return aggregateID
     }
 
-    public func startIO(aggregate: ObjectID, channels: ChannelPair) throws -> IOHandle {
-        // The layouts come from the aggregate itself: its input is the tap, its output is the
-        // target device's streams in order.
-        let source = ChannelLayout(
+    public func startIO(aggregate: ObjectID, tap: TapInfo, channels: ChannelPair) throws -> IOHandle {
+        // Every stream the IO proc touches must be 32 bit float.
+        try CoreAudioProperty.requireFloat32Streams(aggregate, scope: kAudioObjectPropertyScopeInput)
+        try CoreAudioProperty.requireFloat32Streams(aggregate, scope: kAudioObjectPropertyScopeOutput)
+
+        // The input side holds the target device's own inputs and the tap. Find the tap by its
+        // buffer shape and refuse when that is ambiguous, see ChannelMapper.tapBuffers.
+        let input = ChannelLayout(
             channelsPerBuffer: try CoreAudioProperty.channelsPerBuffer(
                 aggregate, scope: kAudioObjectPropertyScopeInput))
+        let tapBuffers = try ChannelMapper.tapBuffers(
+            in: input, tapChannels: tap.channelCount, interleaved: tap.isInterleaved)
+        let source = ChannelLayout(channelsPerBuffer: Array(input.channelsPerBuffer[tapBuffers]))
         let destination = ChannelLayout(
             channelsPerBuffer: try CoreAudioProperty.channelsPerBuffer(
                 aggregate, scope: kAudioObjectPropertyScopeOutput))
-        let routes = try ChannelMapper.routes(source: source, destination: destination, pair: channels)
+        let routes = try ChannelMapper.routes(
+            source: source, destination: destination, pair: channels, sourceBufferOffset: tapBuffers.lowerBound)
 
         let routeMemory = UnsafeMutablePointer<ChannelRoute>.allocate(capacity: routes.count)
         routeMemory.initialize(from: routes, count: routes.count)
+        let seenMemory = UnsafeMutablePointer<UInt32>.allocate(capacity: 1)
+        seenMemory.initialize(to: 0)
         let context = UnsafeMutablePointer<IOContext>.allocate(capacity: 1)
-        context.initialize(to: IOContext(routes: routeMemory, routeCount: routes.count))
+        context.initialize(to: IOContext(routes: routeMemory, routeCount: routes.count, signalSeen: seenMemory))
         func free() {
             context.deallocate()
             routeMemory.deallocate()
+            seenMemory.deallocate()
         }
 
         var procID: AudioDeviceIOProcID?
@@ -143,16 +165,25 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
         }
     }
 
+    public func signalSeen(handle: IOHandle) -> Bool {
+        // Under the lock, so stopIO cannot free the flag while it is read.
+        lock.withLock {
+            guard let state = started[handle.rawValue] else { return false }
+            return state.context.pointee.signalSeen.pointee != 0
+        }
+    }
+
     public func stopIO(aggregate: ObjectID, handle: IOHandle) throws {
         guard let state = lock.withLock({ started.removeValue(forKey: handle.rawValue) }) else {
             return
         }
         let stopStatus = AudioDeviceStop(aggregate, state.procID)
         let destroyStatus = AudioDeviceDestroyIOProcID(aggregate, state.procID)
-        // Free the memory only when the proc surely no longer runs. A leak of two small
+        // Free the memory only when the proc surely no longer runs. A leak of a few small
         // allocations beats a use after free on the audio thread.
         if stopStatus == noErr && destroyStatus == noErr {
             state.context.pointee.routes.deallocate()
+            state.context.pointee.signalSeen.deallocate()
             state.context.deallocate()
         }
         try CoreAudioProperty.check(stopStatus, "AudioDeviceStop (stop IO)")

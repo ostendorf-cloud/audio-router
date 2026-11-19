@@ -2,8 +2,6 @@
   "ignores": [
     ".build/**",
     ".claude/worktrees/**",
-    // The concept predates this lint and uses long lines and numbered phases.
-    "docs/concepts/**",
     "CLAUDE.md"
   ],
   "config": {

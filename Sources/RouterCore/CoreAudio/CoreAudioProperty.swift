@@ -57,7 +57,31 @@ enum CoreAudioProperty {
         var result = [T](repeating: initial, count: Int(size) / MemoryLayout<T>.size)
         size = UInt32(result.count * MemoryLayout<T>.size)
         try check(AudioObjectGetPropertyData(object, &address, 0, nil, &size, &result), name)
+        // The list can shrink between the size query and the read: keep what was returned.
+        let returned = Int(size) / MemoryLayout<T>.size
+        if returned < result.count { result.removeLast(result.count - returned) }
         return result
+    }
+
+    /// Fails unless every stream of the device in `scope` is 32 bit float linear PCM, the format
+    /// the IO proc code reads and writes.
+    static func requireFloat32Streams(_ device: AudioObjectID, scope: AudioObjectPropertyScope) throws {
+        let streams: [AudioObjectID] = try array(device, kAudioDevicePropertyStreams, scope: scope, initial: 0)
+        for stream in streams {
+            let format: AudioStreamBasicDescription = try value(
+                stream, kAudioStreamPropertyVirtualFormat, initial: AudioStreamBasicDescription())
+            guard isFloat32(format) else {
+                throw RouterError.unsupportedFormat(
+                    "stream \(stream) is \(fourCC(Int32(bitPattern: format.mFormatID))), "
+                        + "\(format.mBitsPerChannel) bit, flags \(format.mFormatFlags), not 32 bit float")
+            }
+        }
+    }
+
+    static func isFloat32(_ format: AudioStreamBasicDescription) -> Bool {
+        format.mFormatID == kAudioFormatLinearPCM
+            && format.mFormatFlags & kAudioFormatFlagIsFloat != 0
+            && format.mBitsPerChannel == 32
     }
 
     /// Reads a CFString property. The property follows the create rule, so the string is owned.

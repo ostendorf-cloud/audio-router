@@ -53,7 +53,11 @@ public struct ChannelPair: Equatable, Sendable {
 
     public var second: Int { first + 1 }
 
-    public init(first: Int) {
+    /// Channels count from 1. The upper bound only keeps `second` clear of overflow.
+    public init(first: Int) throws {
+        guard first >= 1, first <= 65_536 else {
+            throw RouterError.usage("--channels counts from 1 and stays below 65537, got \(first).")
+        }
         self.first = first
     }
 }

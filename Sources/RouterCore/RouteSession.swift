@@ -3,19 +3,32 @@
 
 import Foundation
 
-/// One running route: a muted tap over an app, an aggregate device on the target device and the
-/// IO proc between them.
+/// What the IO proc has delivered so far.
+public enum SignalState: Equatable, Sendable {
+    /// Not started, or the wait is not over yet.
+    case waiting
+    /// A sample that is not zero went through.
+    case present
+    /// Only zeros for the whole wait. The app may be paused, or the capture permission is
+    /// missing: a denied tap may deliver silence instead of an error.
+    case silent
+}
+
+/// One running route: a tap over an app, an aggregate device on the target device and the IO
+/// proc between them.
 ///
 /// Creation order: tap, aggregate, IO proc. Teardown runs in the reverse order: IO proc,
 /// aggregate, tap. The tap goes last because destroying it is what lets the app play normally
 /// again, and nothing may still read from it by then.
 ///
-/// A failed `start` rolls back what it created. `stop` can be called any number of times from any
-/// thread, runs the teardown once and keeps going when a step fails.
+/// One lock is held for the whole of `start` and of a teardown. A `stop` that arrives while
+/// another thread starts or tears down waits until that is finished, so when `stop` returns the
+/// teardown has completed, whichever thread ran it. A failed `start` rolls back what it created.
+/// A `stop` before `start` makes the later `start` fail.
 public final class RouteSession: @unchecked Sendable {
     private let backend: any AudioRoutingBackend
     private let plan: RoutePlan
-    private let lock = NSLock()  // guards the three handles below, never used on the audio thread
+    private let lock = NSLock()  // never used on the audio thread
     private var tap: TapInfo?
     private var aggregate: ObjectID?
     private var io: IOHandle?
@@ -29,18 +42,20 @@ public final class RouteSession: @unchecked Sendable {
     /// Creates the tap, the aggregate device and the IO proc. On failure everything created so far
     /// is destroyed again before the error is thrown.
     public func start() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopped else { throw RouterError.sessionAlreadyStopped }
         do {
             let tap = try backend.createTap(
                 processes: plan.processes.map(\.objectID),
                 name: "audio-router \(plan.appBundleID)"
             )
-            lock.withLock { self.tap = tap }
+            self.tap = tap
             let aggregate = try backend.createAggregate(deviceUID: plan.device.uid, tap: tap)
-            lock.withLock { self.aggregate = aggregate }
-            let io = try backend.startIO(aggregate: aggregate, channels: plan.channels)
-            lock.withLock { self.io = io }
+            self.aggregate = aggregate
+            io = try backend.startIO(aggregate: aggregate, tap: tap, channels: plan.channels)
         } catch {
-            let leftovers = stop()
+            let leftovers = teardownLocked()
             if !leftovers.isEmpty {
                 throw RouterError.teardownFailed([String(describing: error)] + leftovers)
             }
@@ -48,20 +63,31 @@ public final class RouteSession: @unchecked Sendable {
         }
     }
 
-    /// Tears the route down. Returns the messages of the steps that failed, empty on success.
-    /// Later calls do nothing and return an empty list.
+    /// Tears the route down and returns the messages of the steps that failed, empty on success.
+    /// Blocks while another thread starts or tears down. Later calls return an empty list.
     @discardableResult
     public func stop() -> [String] {
-        let (tap, aggregate, io): (TapInfo?, ObjectID?, IOHandle?) = lock.withLock {
-            guard !stopped else { return (nil, nil, nil) }
-            stopped = true
-            defer {
-                self.tap = nil
-                self.aggregate = nil
-                self.io = nil
-            }
-            return (self.tap, self.aggregate, self.io)
-        }
+        lock.lock()
+        defer { lock.unlock() }
+        return teardownLocked()
+    }
+
+    /// Whether audio has flowed. `elapsed` is the time since `start` finished.
+    public func signalState(elapsed: TimeInterval, silenceAfter: TimeInterval = 10) -> SignalState {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let io, !stopped else { return .waiting }
+        if backend.signalSeen(handle: io) { return .present }
+        return elapsed >= silenceAfter ? .silent : .waiting
+    }
+
+    private func teardownLocked() -> [String] {
+        guard !stopped else { return [] }
+        stopped = true
+        let (tap, aggregate, io) = (self.tap, self.aggregate, self.io)
+        self.tap = nil
+        self.aggregate = nil
+        self.io = nil
         var failures: [String] = []
         func attempt(_ step: String, _ body: () throws -> Void) {
             do { try body() } catch { failures.append("\(step): \(error)") }
