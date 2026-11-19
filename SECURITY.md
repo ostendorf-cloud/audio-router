@@ -15,15 +15,14 @@ These areas are in scope:
 - Teardown: any exit path that leaves a tap or an aggregate device behind, or leaves an app muted.
 - Input handling of the command line arguments, bundle identifiers and device identifiers.
 
-Releases are signed ad hoc. They are not notarized.
+No binaries are published yet.
 
 ## Reporting a vulnerability
 
-The preferred channel is a draft security advisory through GitHub's private vulnerability reporting,
-the "Report a vulnerability" button under this repository's Security tab, where enabled.
+The preferred channel is GitHub's private vulnerability reporting, the "Report a vulnerability"
+button under this repository's Security tab, where enabled.
 
 When private reporting is unavailable or unsuitable, report to `security@ostendorf.cloud`.
-This is the contact the other repositories of the organisation use.
 
 Do not open a public issue for a vulnerability that is not yet patched.
 

@@ -88,16 +88,28 @@ Press Ctrl-C and confirm the app plays on its normal output again.
 This repository was created by hand. Until the infrastructure repository covers it, these are set outside it.
 Never change them with a CLI or the web UI. Propose the change in the infrastructure repository.
 
-- Rulesets for `main`: required checks (`fmt`, `build`, `test`, `markdownlint`, `yamllint`, `actionlint`,
-  `license`, `renovate-config`, `signoff`), merge method, no direct push.
-- Allow auto-merge for the repository.
-- Secrets and variables of the release app: `GH_APP_RELEASE_APP_ID` (variable) and
-  `GH_APP_RELEASE_PRIVATE_KEY` (secret), used by `release.yaml`.
-- The security app secret `GH_APP_SECURITY_PRIVATE_KEY` for `dco.yaml`, and the Renovate credentials that
-  `renovate.yaml` inherits.
-- Private vulnerability reporting, which `SECURITY.md` names as the preferred channel.
+Still missing:
+
+- A ruleset on `main`: required checks, merge method, no direct push.
+  The check names below come from the job ids in `checks.yaml` and the called workflows' job names.
+  Copy the exact names from a pull request run before writing the ruleset.
+  - `fmt`, `build`, `test`, `markdownlint`, `yamllint`, `actionlint`
+  - `renovate-config / Renovate configuration is valid`
+  - `license / License headers`
+  - `signoff / Every commit carries a DCO sign-off`
+  - the app check `DCO`
+- Allow auto-merge is off. Turn it on for the repository.
+- Private vulnerability reporting is off. `SECURITY.md` names it as the preferred channel.
+
+Already provided by the organisation, nothing to do here:
+
+- The variables `GH_APP_RELEASE_APP_ID` and `GH_APP_DEPENDENCIES_APP_ID`.
+- The secrets `GH_APP_RELEASE_PRIVATE_KEY`, `GH_APP_DEPENDENCIES_PRIVATE_KEY` and `GH_APP_SECURITY_PRIVATE_KEY`.
 - The labels `dependencies` and `release: pending`, `release: tagged`, `release: alpha`, `release: beta`,
   `release: rc`.
+
+Not verified: that the release and dependencies GitHub Apps are installed on this repository.
+The security app is, its `DCO` check ran.
 
 ## Deviations
 
@@ -121,5 +133,6 @@ Never change them with a CLI or the web UI. Propose the change in the infrastruc
   git tag and `CHANGELOG.md`. `release.yaml` and `renovate.yaml` are copied from burnlink at the same pins.
   `renovate.json` extends `github>ostendorf-cloud/workflows#v0.3.0` like govue, gitcd and wishlist.
   The `renovate.yaml` caller has no `workflow_run` trigger, workflows#74 is not merged.
-- Release binaries would be signed ad hoc. There is no notarization and no Homebrew formula.
+- Local builds are signed ad hoc by the toolchain. There is no notarization and no Homebrew formula.
+  `release.yaml` builds and publishes no binary.
 - `lint:license` in the Taskfile and `find-commands` in `checks.yaml` are kept in step by hand.
