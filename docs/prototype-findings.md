@@ -465,8 +465,8 @@ swift build -c release
 .build/release/audio-router-proto apps
 ```
 
-1. The -20 dBFS run on the X-USB (measured in the second round, see the tables). Set the macOS default output to the X-USB, play
-   `sine-1khz-minus20dbfs.wav`.
+1. The -20 dBFS run on the X-USB (measured in the second round, see the tables). Set the macOS
+   default output to the X-USB, play `sine-1khz-minus20dbfs.wav`.
 
    ```sh
    .build/release/audio-router-proto route --bundle-id <id> \
