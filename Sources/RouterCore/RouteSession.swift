@@ -136,6 +136,16 @@ public final class RouteSession: @unchecked Sendable {
         }
     }
 
+    /// The output for a wait that ended silent: the tap check first, the permission hint only
+    /// where it can be the cause, see `TapCheck.silentWait`. Control thread only.
+    public func silentWaitOutput() -> TapCheck.SilentWaitOutput {
+        TapCheck.silentWait(
+            active: activeInputChannels(), info: routeInfo(),
+            fullHint: Formatting.silenceWarning(
+                bundleID: plan.appBundleID, mode: plan.tapMode, deviceName: plan.device.name),
+            shortHint: Formatting.permissionHint)
+    }
+
     private func teardownLocked() -> [String] {
         guard !stopped else { return [] }
         stopped = true

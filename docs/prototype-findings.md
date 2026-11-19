@@ -387,9 +387,18 @@ the route. A multichannel app is legitimate and noise on a device input counts a
 refusal would be wrong.
 
 The check runs about two seconds after the first signal. When no routed channel ever carries a
-sample, it runs once after 10 seconds, next to the generic no audio warning. That is the case of a
-wrong buffer that is silent on the pair. The warning goes to stderr and the signal line to stdout,
-so use `2>&1` when both go to a log.
+sample, it runs once after 10 seconds, before the generic no audio warning, and the generic
+warning depends on the result:
+
+- Signal on tap channels outside `--source-channels`: the specific warning only. Capture works,
+  so the permission hint would name a wrong cause. Measured in run 3 below: the permission
+  warning came first and was misleading, that order was the defect.
+- No signal on the tap, a device input active: the specific warning, then one short sentence
+  that the capture permission may also be missing.
+- Nothing active: the generic no audio warning with the permission hint only.
+
+That is the case of a wrong buffer or an app on another pair, silent on the source pair. The
+warning goes to stderr and the signal line to stdout, so use `2>&1` when both go to a log.
 
 The warning does not detect the 1/16 gain loss of a stereo mixdown tap (see the measurement
 above). It checks where the signal sits, not how loud it is. Check the gain with `--meter`.
@@ -414,6 +423,25 @@ the retry flags. How to read it:
   only taps audio that goes there), or the buffer is wrong. Check the macOS default output first.
 - No warning is not proof. An app that writes only inside the pair on a wrong buffer that carries
   device noise inside the pair looks the same as a right pick.
+
+Measured on 2026-11-19 on the owner's Mac, branch `feat/11-tap-warning` at 74557ae, release
+build. Device X-USB (BEHRINGER), 32 channels, 48000 Hz. App `com.spotify.client` playing music,
+output routed with `--channels 3,4`. The music is not the calibration tone, so no level in this
+table is a gain check.
+
+| Run | Command (options) | Tap buffer | Source channels | Warning printed | Observed lines |
+| --- | ----------------- | ---------- | --------------- | --------------- | -------------- |
+| 1, right pick | `--meter` | 1, by stream id diff (`aggregate input buffers: [32, 32], tap in buffer 1`) | 1,2 (default) | no (expected: none) | `signal on tap channels: 1,2 \| on device input channels (noise counts): 1,2,3,5,6,31,32 \| device preferred stereo pair: 1,2`. Meter: `tap` and `out` peak identical on every line, peak -23.3 to -31.9 dBFS, rms -35.0 to -45.7 dBFS |
+| 2, forced wrong buffer | `--tap-buffer 0` | 0, by `--tap-buffer` (the stream id diff still found index 1) | 1,2 (default) | yes (expected: yes) | `signal on tap channels: 1,2,3,5,6,31,32 \| on device input channels (noise counts): 1,2 \| device preferred stereo pair: 1,2`, then `warning: tap buffer 0 was picked by --tap-buffer: signal on tap channels 3,5,6,31,32, outside --source-channels 1,2. ...`. The owner heard their microphone on output channels 3 and 4: buffer 0 is the device input, not the app |
+| 3, source pair the app does not use | `--source-channels 3,4` | 1, by stream id diff (the correct buffer) | 3,4 | yes, in the wrong order at 74557ae: first the generic `warning: no audio arrived in 10 seconds ... the system audio capture permission may be missing or denied ...` (misleading, capture works and the pair is wrong), then the specific warning | `signal on tap channels: 1,2 \| on device input channels (noise counts): 1,2,3,31,32 \| ...`, then `warning: tap buffer 1 was picked by stream id diff: signal on tap channels 1,2, outside --source-channels 3,4. ...`. The specific warning fires after the silence wait, so the fix of 74557ae works in the live flow. The order is fixed after this run, not yet measured again |
+
+Not measured:
+
+- The gain check with the calibration tone (`--tap-mode stereo-mixdown` against the default),
+  QuickTime file `sine-1khz-minus20dbfs.wav`. The -20 dBFS rows above and below stay empty.
+- Ctrl-C restores the normal output (the app plays on its normal output again).
+- A forced right buffer `--tap-buffer 1`, to compare with the stream id diff choice.
+- Run 3 again with the corrected order: specific warning only, no permission hint.
 
 A stereo input device (layout `[2, 2]`, for example a USB stereo interface). In device stream mode
 the stream id diff names the tap buffer when exactly one input stream appears with the tap and the

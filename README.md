@@ -24,6 +24,9 @@ swift build -c release
 - `route` prints a warning to stderr when the signal sits outside `--source-channels` or the tap
   shows none while a device input is active. It names the picked tap buffer and how it was picked.
   It does not check the gain, use `--meter` for that. Use `2>&1` to log both streams.
+- `route` prints the system audio capture permission warning after 10 silent seconds only when the
+  tap shows no signal on any channel. With signal on other tap channels it prints the tap warning
+  alone.
 
 ## License
 

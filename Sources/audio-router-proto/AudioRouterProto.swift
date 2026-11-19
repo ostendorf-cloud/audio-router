@@ -126,15 +126,12 @@ struct AudioRouterProto {
                 }
             case .silent:
                 timer.cancel()
-                Diagnostics.write(
-                    Formatting.silenceWarning(
-                        bundleID: plan.appBundleID, mode: plan.tapMode, deviceName: plan.device.name))
                 // No routed channel carried a sample. A wrong buffer or an app on another pair ends
-                // here, so the specific warning must run too. The activity flags cover the 10 s.
-                if let report = session.tapReport(for: .silent) {
-                    Diagnostics.write(report.activity + "\n", to: STDOUT_FILENO)
-                    if let warning = report.warning { Diagnostics.write(warning + "\n") }
-                }
+                // here. The tap check runs first: the permission hint is printed only where it can
+                // be the cause. The activity flags cover the 10 s.
+                let output = session.silentWaitOutput()
+                if let activity = output.activity { Diagnostics.write(activity + "\n", to: STDOUT_FILENO) }
+                for warning in output.warnings { Diagnostics.write(warning.hasSuffix("\n") ? warning : warning + "\n") }
             }
         }
         timer.resume()

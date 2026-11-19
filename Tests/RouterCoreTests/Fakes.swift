@@ -161,7 +161,17 @@ final class FakeBackend: AudioRoutingBackend, @unchecked Sendable {
         inputBuffers: [32, 2], tapBuffers: 1..<2, outputBuffers: [32],
         inputStreams: [], outputStreams: [], aggregateSampleRate: 48000, deviceSampleRate: 44100)
 
-    func routeInfo(handle: IOHandle) -> RouteInfo? { FakeBackend.info }
+    /// A layout of 32 device input channels and a 32 channel tap, as on the X-USB.
+    static let wideInfo = RouteInfo(
+        tap: StreamFormatInfo(sampleRate: 48000, channels: 32, interleaved: true),
+        inputBuffers: [32, 32], tapBuffers: 1..<2, outputBuffers: [32],
+        inputStreams: [], outputStreams: [], aggregateSampleRate: 48000, deviceSampleRate: 48000)
+
+    /// What `routeInfo` returns, `info` unless set.
+    func setInfo(_ value: RouteInfo) { lock.withLock { infoValue = value } }
+    private var infoValue = FakeBackend.info
+
+    func routeInfo(handle: IOHandle) -> RouteInfo? { lock.withLock { infoValue } }
 
     func readMeter(handle: IOHandle) -> MeterReading? {
         lock.withLock { readings.isEmpty ? nil : readings.removeFirst() }

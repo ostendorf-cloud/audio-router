@@ -45,6 +45,10 @@ About two seconds after the first signal, or when the wait for a signal ends sil
 signal line and, through `TapCheck`, a warning when the tap side shows channels outside `--source-channels` or
 none while a device input is active. It is a warning, never a refusal, and it does not check the gain:
 `--meter` does that.
+When the wait ends silent the tap check runs first (`TapCheck.silentWait`).
+Signal outside `--source-channels` prints the specific warning only.
+No tap signal with a device input active prints it plus one short permission sentence.
+Nothing active prints the full permission warning only.
 `--meter` prints peak and RMS in dBFS of the tap and the output to stdout once a second.
 `ChannelMapper.measure` runs next to `render` in the IO proc with the same real time contract.
 

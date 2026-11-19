@@ -117,6 +117,9 @@ public enum Formatting {
 
     /// The warning after 10 seconds without a sample. In the device stream mode the tap only
     /// holds audio that goes to the target device, so the app must play there.
+    public static let permissionHint =
+        "The system audio capture permission may also be missing or denied for this terminal app."
+
     public static func silenceWarning(bundleID: String, mode: TapMode, deviceName: String) -> String {
         var text =
             "warning: no audio arrived in 10 seconds. If \(bundleID) is playing, the system audio "
