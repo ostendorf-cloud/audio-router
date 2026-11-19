@@ -16,9 +16,10 @@ private func parseRoute(_ extra: [String]) throws -> RouteArguments {
 }
 
 struct TapModeParsingTests {
-    @Test func theDefaultsAreTheMixdownAndTheFirstPair() throws {
+    @Test func theDefaultsAreTheDeviceStreamAndTheFirstPair() throws {
         let arguments = try parseRoute([])
-        #expect(arguments.tapMode == .stereoMixdown)
+        #expect(arguments.tapMode == .deviceStream)
+        #expect(TapMode.standard == .deviceStream)
         #expect(arguments.sourceChannels == Samples.pair(1))
         #expect(arguments.tapBuffer == nil)
         #expect(ChannelPair.firstPair == Samples.pair(1))
@@ -135,7 +136,7 @@ struct TapModeSessionTests {
         let defaults = try RoutePlanner.plan(
             RouteArguments(bundleID: "com.apple.QuickTimePlayerX", deviceUID: "mixer-uid", channels: Samples.pair(3)),
             devices: [Samples.device], processes: [process])
-        #expect(defaults.tapMode == .stereoMixdown)
+        #expect(defaults.tapMode == .deviceStream)
         #expect(defaults.sourceChannels == Samples.pair(1))
         #expect(defaults.tapBuffer == nil)
     }
@@ -239,6 +240,7 @@ struct TapModeFormattingTests {
         let named = last(.override, mode: .stereoMixdown, source: 3)
         #expect(named.hasPrefix("tap mode: stereo-mixdown, source channels 3,4"))
         #expect(last(.override).hasSuffix("tap buffer: named by --tap-buffer"))
+        #expect(last(.streamDiff).contains("tap buffer: by stream id diff"))
         let order = last(.lastByMeasuredOrder)
         #expect(order.contains("the layout excludes the other order"))
         #expect(order.contains("content is not proven"))

@@ -17,7 +17,7 @@ public struct RoutePlan: Equatable, Sendable {
 
     public init(
         device: OutputDevice, channels: ChannelPair, appBundleID: String, processes: [AudioProcess],
-        tapMode: TapMode = .stereoMixdown, sourceChannels: ChannelPair = .firstPair, tapBuffer: Int? = nil
+        tapMode: TapMode = .standard, sourceChannels: ChannelPair = .firstPair, tapBuffer: Int? = nil
     ) {
         self.device = device
         self.channels = channels

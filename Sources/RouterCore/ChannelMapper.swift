@@ -90,7 +90,8 @@ public enum ChannelMapper {
         interleaved: Bool,
         deviceName: String = "the output device",
         deviceInputBuffers: [Int]? = nil,
-        override: Int? = nil
+        override: Int? = nil,
+        streamDiffBuffer: Int? = nil
     ) throws -> (range: Range<Int>, choice: TapBufferChoice) {
         guard tapChannels > 0 else {
             throw RouterError.unsupportedFormat("the tap has no channels")
@@ -105,6 +106,13 @@ public enum ChannelMapper {
                     "--tap-buffer \(override) does not name a buffer of the tap shape \(shape), buffers are \(buffers)")
             }
             return (override..<override + shape.count, .override)
+        }
+        // The stream id diff names the buffer without a guess about the order. A buffer of the
+        // wrong shape means the diff and the buffer list disagree: ignore it and decide as before.
+        if let k = streamDiffBuffer, k >= 0, k + shape.count <= buffers.count,
+            Array(buffers[k..<k + shape.count]) == shape
+        {
+            return (k..<k + shape.count, .streamDiff)
         }
         var matches: [Range<Int>] = []
         var start = 0
@@ -128,6 +136,42 @@ public enum ChannelMapper {
             throw RouterError.unprovableTapOrder(device: deviceName, buffers: buffers, tapShape: shape)
         }
         return (last, .lastByMeasuredOrder)
+    }
+
+    /// Finds the tap buffer from the input stream IDs of the aggregate device before and after the
+    /// tap was added to its tap list. The one new stream is the tap's, and its index in the stream
+    /// list is taken as the buffer index.
+    ///
+    /// The header does not say that the IO proc buffers follow the order of
+    /// `kAudioDevicePropertyStreams`. This checks what it can: exactly one new stream, the old
+    /// streams keep their order, the channels per stream equal the buffer list, and the new
+    /// stream has the tap's channel count. Where several streams have the same channel count,
+    /// that does not prove the order, only a run does (docs/prototype-findings.md section 9).
+    /// Only an interleaved tap is handled, the caller falls back when this throws.
+    public static func tapBufferByStreamDiff(
+        before: [UInt32],
+        after: [UInt32],
+        streamChannels: [Int],
+        inputBuffers: [Int],
+        tapChannels: Int,
+        interleaved: Bool
+    ) throws -> Int {
+        func fail(_ reason: String) -> RouterError { .unsupportedFormat("stream id diff: \(reason)") }
+        guard interleaved else { throw fail("only an interleaved tap is handled") }
+        let added = after.indices.filter { !before.contains(after[$0]) }
+        guard added.count == 1, let k = added.first else {
+            throw fail("\(added.count) new input streams, expected exactly one (before \(before), after \(after))")
+        }
+        guard after.filter({ before.contains($0) }) == before else {
+            throw fail("the old streams changed (before \(before), after \(after))")
+        }
+        guard streamChannels == inputBuffers else {
+            throw fail("channels per stream \(streamChannels) differ from the buffers \(inputBuffers)")
+        }
+        guard inputBuffers[k] == tapChannels else {
+            throw fail("the new stream has \(inputBuffers[k]) channels, the tap has \(tapChannels)")
+        }
+        return k
     }
 
     /// Builds the routes that copy the source onto the channel pair of the destination. A mono

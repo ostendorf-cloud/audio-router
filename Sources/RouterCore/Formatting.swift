@@ -81,6 +81,9 @@ public enum Formatting {
                 + "or force the buffer with --tap-buffer"
         case .override:
             return "named by --tap-buffer"
+        case .streamDiff:
+            return "by stream id diff, the stream that appeared when the tap was added, assuming the IO "
+                + "buffers follow the stream list order"
         }
     }
 

@@ -78,6 +78,10 @@ public enum TapMode: String, Equatable, Sendable, CaseIterable {
     /// stream of the target device, no mixdown.
     case deviceStream = "device-stream"
 
+    /// The mode a route uses without `--tap-mode`. Measured by the owner on the X32: the device
+    /// stream tap reads unity, the stereo mixdown 24.1 dB low.
+    public static let standard = TapMode.deviceStream
+
     /// Refuses a description that reads back as exclusive in the device stream mode. The header
     /// text of the stream initializer calls its `processes` the ones "to exclude", which looks
     /// like a copy paste, so the flag is read back instead of trusted.
@@ -100,4 +104,6 @@ public enum TapBufferChoice: Equatable, Sendable {
     case lastByMeasuredOrder
     /// The user named the buffer with `--tap-buffer`.
     case override
+    /// The stream that appeared when the tap joined the aggregate. Its index is the buffer.
+    case streamDiff
 }

@@ -376,11 +376,89 @@ struct ChannelMapperTests {
 
     private func choose(
         _ buffers: [Int], channels: Int = 32, interleaved: Bool = true, deviceInputs: [Int]? = nil,
-        override: Int? = nil
+        override: Int? = nil, diff: Int? = nil
     ) throws -> (range: Range<Int>, choice: TapBufferChoice) {
         try ChannelMapper.chooseTapBuffers(
             in: ChannelLayout(channelsPerBuffer: buffers), tapChannels: channels, interleaved: interleaved,
-            deviceName: "X32", deviceInputBuffers: deviceInputs, override: override)
+            deviceName: "X32", deviceInputBuffers: deviceInputs, override: override, streamDiffBuffer: diff)
+    }
+
+    // MARK: Stream id diff
+
+    private func diff(
+        before: [UInt32], after: [UInt32], channels: [Int]? = nil, buffers: [Int] = [32, 32], tap: Int = 32,
+        interleaved: Bool = true
+    ) throws -> Int {
+        try ChannelMapper.tapBufferByStreamDiff(
+            before: before, after: after, streamChannels: channels ?? buffers, inputBuffers: buffers,
+            tapChannels: tap, interleaved: interleaved)
+    }
+
+    @Test func theNewStreamIsTheTapAtItsIndex() throws {
+        #expect(try diff(before: [239], after: [239, 240]) == 1)
+        // The order differs from "tap last": the new stream sits first.
+        #expect(try diff(before: [239], after: [240, 239]) == 0)
+        #expect(try diff(before: [10, 11], after: [10, 99, 11], buffers: [2, 32, 2], tap: 32) == 1)
+        #expect(try diff(before: [], after: [5], buffers: [2], tap: 2) == 0)
+    }
+
+    @Test func noNewStreamOrTwoNewStreamsFail() {
+        #expect(throws: RouterError.self) { try diff(before: [239, 240], after: [239, 240]) }
+        #expect(throws: RouterError.self) { try diff(before: [239], after: [239, 240, 241], buffers: [32, 32, 32]) }
+        #expect(throws: RouterError.self) { try diff(before: [239], after: []) }
+    }
+
+    @Test func aReorderedOrRemovedOldStreamFails() {
+        #expect(throws: RouterError.self) {
+            try diff(before: [1, 2], after: [2, 1, 3], buffers: [2, 2, 2], tap: 2)
+        }
+        #expect(throws: RouterError.self) { try diff(before: [1, 2], after: [1, 3], buffers: [2, 2], tap: 2) }
+    }
+
+    @Test func channelCountsPerStreamMustMatchTheBuffers() {
+        #expect(throws: RouterError.self) { try diff(before: [239], after: [239, 240], channels: [32, 2]) }
+        #expect(throws: RouterError.self) { try diff(before: [239], after: [239, 240], channels: [32]) }
+        // The new stream does not have the tap's channel count.
+        #expect(throws: RouterError.self) { try diff(before: [239], after: [239, 240], buffers: [32, 2]) }
+    }
+
+    @Test func aNonInterleavedTapFallsBack() throws {
+        #expect(throws: RouterError.self) {
+            try diff(before: [1], after: [1, 2], buffers: [2, 1, 1], tap: 2, interleaved: false)
+        }
+        // Everything else fits, only the tap is not interleaved.
+        #expect(throws: RouterError.self) {
+            try diff(before: [1], after: [1, 2], buffers: [2, 2], tap: 2, interleaved: false)
+        }
+        #expect(try diff(before: [1], after: [1, 2], buffers: [2, 2], tap: 2, interleaved: true) == 1)
+    }
+
+    @Test func theDiffNamesTheBufferOnTheSymmetricX32List() throws {
+        let found = try choose([32, 32], deviceInputs: [32], diff: 1)
+        #expect(found.range == 1..<2)
+        #expect(found.choice == .streamDiff)
+        #expect(try choose([32, 32], deviceInputs: [32], diff: 0).range == 0..<1)
+    }
+
+    @Test func theOverrideBeatsTheDiff() throws {
+        let found = try choose([32, 32], override: 0, diff: 1)
+        #expect(found.range == 0..<1)
+        #expect(found.choice == .override)
+    }
+
+    @Test func aDiffBufferOfTheWrongShapeFallsBackToTheRules() throws {
+        // Diff says buffer 0 (32 channels) but the tap has 2: the unique shape rule decides.
+        let found = try choose([32, 2], channels: 2, diff: 0)
+        #expect(found.range == 1..<2)
+        #expect(found.choice == .uniqueShape)
+        #expect(throws: RouterError.self) { try choose([32, 32], diff: 5) }
+        #expect(throws: RouterError.self) { try choose([32, 32], diff: -1) }
+        #expect(throws: RouterError.self) { try choose([32, 32], diff: nil) }
+    }
+
+    @Test func aDiffBufferIsUsedForAnInterleavedShapeAtTheEnd() throws {
+        // Diff index 1 of [32, 2] with a stereo tap.
+        #expect(try choose([32, 2], channels: 2, diff: 1).choice == .streamDiff)
     }
 
     @Test func aTapOfTheDeviceInputShapeIsRefusedWithoutTheOrderEvidence() {

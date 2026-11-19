@@ -37,10 +37,10 @@ The prototype binary:
 ```
 
 Channels count from 1 and must be two adjacent channels.
-`--tap-mode device-stream` taps output stream 0 of the device without the stereo mixdown, which loses 24 dB on a
-32 channel device. The default stays `stereo-mixdown` until the owner measured unity, see `docs/prototype-findings.md`
+`--tap-mode device-stream` (the default) taps output stream 0 of the device without the stereo mixdown.
+`--tap-mode stereo-mixdown` loses 24 dB on a 32 channel device (measured), see `docs/prototype-findings.md`
 section 9. `--source-channels` names the tap channels that carry the app (default 1,2).
-`--tap-buffer` forces the tap buffer (from 0).
+`--tap-buffer` forces the tap buffer (from 0). Without it the tap stream is found by the stream id diff.
 `--meter` prints peak and RMS in dBFS of the tap and the output to stdout once a second.
 `ChannelMapper.measure` runs next to `render` in the IO proc with the same real time contract.
 
@@ -57,8 +57,9 @@ section 9. `--source-channels` names the tap channels that carry the app (defaul
 - The tap uses `mutedWhenTapped`, so a stopped IO proc lets the app play again. Do not switch to `muted`
   without a new decision in the concept.
 - The target device is a sub device of the aggregate. `ChannelMapper.chooseTapBuffers` finds the tap among the
-  device inputs and refuses when that is ambiguous. Keep that check. When the device inputs have the tap shape the
-  layout cannot prove the order and the route needs `--tap-buffer`. Do not widen the rule.
+  device inputs and refuses when that is ambiguous. Keep that check. The stream id diff (`createAggregate`, then
+  `ChannelMapper.tapBufferByStreamDiff`) names the tap buffer when it can. When it fails and the device inputs have
+  the tap shape, the layout cannot prove the order and the route needs `--tap-buffer`. Do not widen the rule.
 - `SIGTSTP` is ignored on purpose, a suspended process cannot tear down.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.
