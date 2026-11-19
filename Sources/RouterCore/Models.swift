@@ -53,11 +53,51 @@ public struct ChannelPair: Equatable, Sendable {
 
     public var second: Int { first + 1 }
 
+    /// The pair 1,2.
+    public static let firstPair = ChannelPair(unchecked: 1)
+
+    private init(unchecked first: Int) {
+        self.first = first
+    }
+
     /// Channels count from 1. The upper bound only keeps `second` clear of overflow.
-    public init(first: Int) throws {
+    public init(first: Int, flag: String = "--channels") throws {
         guard first >= 1, first <= 65_536 else {
-            throw RouterError.usage("--channels counts from 1 and stays below 65537, got \(first).")
+            throw RouterError.usage("\(flag) counts from 1 and stays below 65537, got \(first).")
         }
         self.first = first
     }
+}
+
+/// How the tap is made. Both modes tap the same processes.
+public enum TapMode: String, Equatable, Sendable, CaseIterable {
+    /// `CATapDescription(stereoMixdownOfProcesses:)`. A 2 channel tap. Measured on a 32 channel
+    /// device: 24.1 dB too quiet, see docs/prototype-findings.md section 9.
+    case stereoMixdown = "stereo-mixdown"
+    /// `CATapDescription(processes:deviceUID:stream:)`. The tap has the format of one output
+    /// stream of the target device, no mixdown.
+    case deviceStream = "device-stream"
+
+    /// Refuses a description that reads back as exclusive in the device stream mode. The header
+    /// text of the stream initializer calls its `processes` the ones "to exclude", which looks
+    /// like a copy paste, so the flag is read back instead of trusted.
+    public func validateDescription(isExclusive: Bool) throws {
+        if self == .deviceStream && isExclusive {
+            throw RouterError.unsupportedFormat(
+                "the device stream tap description reads back as exclusive, it would tap every process "
+                    + "except the app. Refusing to start.")
+        }
+    }
+}
+
+/// Which input buffer holds the tap, and how that was decided. Printed at start.
+public enum TapBufferChoice: Equatable, Sendable {
+    /// Only one input buffer has the tap shape.
+    case uniqueShape
+    /// Several buffers have the tap shape. The last one is taken, because the list is exactly the
+    /// device's own input buffers plus the tap shape and differs from the tap shape plus the
+    /// device inputs, so the layout excludes the other order.
+    case lastByMeasuredOrder
+    /// The user named the buffer with `--tap-buffer`.
+    case override
 }

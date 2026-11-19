@@ -65,7 +65,52 @@ public enum Formatting {
             "aggregate output streams: " + info.outputStreams.map(stream).joined(separator: "; "),
             "sample rate: tap \(hertz(info.tap.sampleRate)), aggregate \(hertz(info.aggregateSampleRate)), "
                 + "device \(hertz(info.deviceSampleRate))",
-        ]
+            "tap mode: \(info.tapMode.rawValue), source channels \(info.sourceChannels.first),"
+                + "\(info.sourceChannels.second), tap buffer: \(choice(info.tapBufferChoice))",
+            "tap description: mixdown \(info.tapIsMixdown), exclusive \(info.tapIsExclusive)",
+        ] + info.probes
+    }
+
+    static func choice(_ choice: TapBufferChoice) -> String {
+        switch choice {
+        case .uniqueShape:
+            return "the only buffer of the tap shape"
+        case .lastByMeasuredOrder:
+            return "the last of several buffers of the tap shape, the layout excludes the other order "
+                + "(device inputs plus tap shape). The buffer content is not proven. Check the signal line "
+                + "or force the buffer with --tap-buffer"
+        case .override:
+            return "named by --tap-buffer"
+        }
+    }
+
+    /// One line: the channels that carried signal, tap channels and device input channels, each
+    /// counted from 1 inside their group.
+    /// The flags are sticky and any non zero sample counts, so the device side shows input noise.
+    /// `preferred` is information only, the pair the device itself names for stereo.
+    public static func activity(tap: [Int], device: [Int], preferred: String? = nil) -> String {
+        func list(_ channels: [Int]) -> String {
+            channels.isEmpty ? "none" : channels.map(String.init).joined(separator: ",")
+        }
+        var line = "signal on tap channels: \(list(tap)) | on device input channels (noise counts): \(list(device))"
+        if let preferred { line += " | device preferred stereo pair: \(preferred)" }
+        return line
+    }
+
+    /// The warning after 10 seconds without a sample. In the device stream mode the tap only
+    /// holds audio that goes to the target device, so the app must play there.
+    public static func silenceWarning(bundleID: String, mode: TapMode, deviceName: String) -> String {
+        var text =
+            "warning: no audio arrived in 10 seconds. If \(bundleID) is playing, the system audio "
+            + "capture permission may be missing or denied for this terminal app: a denied tap may "
+            + "deliver silence instead of an error. See docs/prototype-findings.md."
+        if mode == .deviceStream {
+            text +=
+                " In device-stream mode the tap only holds audio that \(bundleID) plays to \(deviceName). "
+                + "If the app plays to another output device, set that device as the macOS default output "
+                + "or route to that device."
+        }
+        return text + "\n"
     }
 
     /// Left aligned columns separated by two spaces, no trailing spaces.

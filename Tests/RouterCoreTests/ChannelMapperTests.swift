@@ -372,6 +372,203 @@ struct ChannelMapperTests {
         }
     }
 
+    // MARK: A 32 channel tap next to 32 device inputs
+
+    private func choose(
+        _ buffers: [Int], channels: Int = 32, interleaved: Bool = true, deviceInputs: [Int]? = nil,
+        override: Int? = nil
+    ) throws -> (range: Range<Int>, choice: TapBufferChoice) {
+        try ChannelMapper.chooseTapBuffers(
+            in: ChannelLayout(channelsPerBuffer: buffers), tapChannels: channels, interleaved: interleaved,
+            deviceName: "X32", deviceInputBuffers: deviceInputs, override: override)
+    }
+
+    @Test func aTapOfTheDeviceInputShapeIsRefusedWithoutTheOrderEvidence() {
+        #expect(throws: RouterError.ambiguousTapStream(device: "X32", buffers: [32, 32], tapShape: [32])) {
+            try choose([32, 32])
+        }
+    }
+
+    @Test func aSymmetricListCannotProveTheOrderAndIsRefused() {
+        // Device [32] and tap [32]: device+tap and tap+device are the same list.
+        #expect(throws: RouterError.unprovableTapOrder(device: "X32", buffers: [32, 32], tapShape: [32])) {
+            try choose([32, 32], deviceInputs: [32])
+        }
+        #expect(throws: RouterError.unprovableTapOrder(device: "X32", buffers: [1, 1, 1, 1], tapShape: [1, 1])) {
+            try choose([1, 1, 1, 1], channels: 2, interleaved: false, deviceInputs: [1, 1])
+        }
+        // Two device inputs of the same shape: still the same list in both orders.
+        #expect(throws: RouterError.unprovableTapOrder(device: "X32", buffers: [32, 32, 32], tapShape: [32])) {
+            try choose([32, 32, 32], deviceInputs: [32, 32])
+        }
+        let text = "\(RouterError.unprovableTapOrder(device: "X32", buffers: [32, 32], tapShape: [32]))"
+        #expect(text.contains("--tap-buffer"))
+        #expect(text.contains("[32, 2]"))
+        #expect(text.contains("--tap-buffer 1"))
+    }
+
+    @Test func theExplicitBufferWorksOnASymmetricList() throws {
+        for index in [0, 1] {
+            let found = try choose([32, 32], deviceInputs: [32], override: index)
+            #expect(found.range == index..<index + 1)
+            #expect(found.choice == .override)
+        }
+    }
+
+    @Test func anAsymmetricListExcludesTheOtherOrder() throws {
+        // Device [2, 32] then tap [32] is [2, 32, 32]. Tap first would be [32, 2, 32].
+        let found = try choose([2, 32, 32], deviceInputs: [2, 32])
+        #expect(found.range == 2..<3)
+        #expect(found.choice == .lastByMeasuredOrder)
+    }
+
+    @Test func theOrderRuleNeedsTheListToBeExactlyDeviceInputsPlusTheTap() throws {
+        // The device reports other buffers than the aggregate holds before the tap.
+        #expect(throws: RouterError.self) { try choose([32, 32], deviceInputs: [16]) }
+        #expect(throws: RouterError.self) { try choose([32, 32], deviceInputs: []) }
+        // More buffers than device inputs plus the tap.
+        #expect(throws: RouterError.self) { try choose([32, 32, 32], deviceInputs: [32]) }
+        #expect(throws: RouterError.self) { try choose([32, 32], deviceInputs: [32, 32]) }
+        // The shape matches twice but not at the end of the list.
+        #expect(throws: RouterError.self) { try choose([32, 32, 2], deviceInputs: [32, 32]) }
+        #expect(throws: RouterError.self) { try choose([32, 32, 2], deviceInputs: [32, 2]) }
+        // The tap would come first. The measured order is device inputs first.
+        #expect(throws: RouterError.self) { try choose([32, 2, 32], deviceInputs: [2, 32]) }
+        let found = try choose([2, 32, 32], deviceInputs: [2, 32])
+        #expect(found.range == 2..<3)
+    }
+
+    @Test func theOrderRuleOnlyAppliesWhenTheShapeIsAmbiguous() throws {
+        let unique = try choose([32, 2], channels: 2, deviceInputs: [32])
+        #expect(unique.range == 1..<2)
+        #expect(unique.choice == .uniqueShape)
+        let first = try choose([2, 32], channels: 2, deviceInputs: [32])
+        #expect(first.range == 0..<1)
+        #expect(first.choice == .uniqueShape)
+    }
+
+    @Test func aNonInterleavedTapUsesTheOrderRuleToo() throws {
+        let found = try choose([1, 1, 2, 1, 1], channels: 2, interleaved: false, deviceInputs: [1, 1, 2])
+        #expect(found.range == 3..<5)
+        #expect(found.choice == .lastByMeasuredOrder)
+    }
+
+    @Test func theOverrideNamesTheBufferAndChecksItsShape() throws {
+        let second = try choose([32, 32], override: 1)
+        #expect(second.range == 1..<2)
+        #expect(second.choice == .override)
+        let first = try choose([32, 32], override: 0)
+        #expect(first.range == 0..<1)
+        #expect(first.choice == .override)
+        #expect(try choose([32, 2], channels: 2, interleaved: true, override: 1).range == 1..<2)
+        #expect(throws: RouterError.self) { try choose([32, 2], override: 1) }
+        #expect(throws: RouterError.self) { try choose([32, 32], override: 2) }
+        #expect(throws: RouterError.self) { try choose([32, 32], override: -1) }
+        #expect(throws: RouterError.self) { try choose([32, 1, 1], channels: 2, interleaved: false, override: 2) }
+        #expect(try choose([32, 1, 1], channels: 2, interleaved: false, override: 1).range == 1..<3)
+    }
+
+    @Test func aDeviceInputNeverReachesTheOutputWithA32ChannelTap() throws {
+        // 32 device inputs full of 7s, then a 32 channel tap whose channel n holds 100 + n.
+        let layout = ChannelLayout(channelsPerBuffer: [32, 32])
+        let found = try ChannelMapper.chooseTapBuffers(
+            in: layout, tapChannels: 32, interleaved: true, deviceInputBuffers: [32], override: 1)
+        for (source, expected) in [(1, (100, 101)), (5, (104, 105)), (31, (130, 131))] {
+            let routes = try ChannelMapper.routes(
+                source: ChannelLayout(channelsPerBuffer: Array(layout.channelsPerBuffer[found.range])),
+                destination: ChannelLayout(channelsPerBuffer: [8]),
+                pair: Samples.pair(3),
+                sourceBufferOffset: found.range.lowerBound,
+                sourcePair: Samples.pair(source)
+            )
+            #expect(routes.map(\.sourceBuffer) == [1, 1])
+            let input = Buffers(channelsPerBuffer: [32, 32], frames: 2) { buffer, _, channel in
+                buffer == 0 ? 7 : Float(100 + channel)
+            }
+            let output = Buffers(channelsPerBuffer: [8], frames: 2)
+            render(routes, input: input, output: output)
+            #expect(output.sample(buffer: 0, frame: 1, channel: 2) == Float(expected.0))
+            #expect(output.sample(buffer: 0, frame: 1, channel: 3) == Float(expected.1))
+            for channel in [0, 1, 4, 5, 6, 7] {
+                #expect(output.sample(buffer: 0, frame: 1, channel: channel) == 0)
+            }
+        }
+    }
+
+    @Test func theSourcePairPicksTheChannelsOfTheTap() throws {
+        let routes = try ChannelMapper.routes(
+            source: ChannelLayout(channelsPerBuffer: [32]),
+            destination: ChannelLayout(channelsPerBuffer: [4]),
+            pair: Samples.pair(1),
+            sourcePair: Samples.pair(31)
+        )
+        #expect(routes.map(\.sourceChannel) == [30, 31])
+        let defaults = try ChannelMapper.routes(
+            source: ChannelLayout(channelsPerBuffer: [32]),
+            destination: ChannelLayout(channelsPerBuffer: [4]),
+            pair: Samples.pair(1)
+        )
+        #expect(defaults.map(\.sourceChannel) == [0, 1])
+    }
+
+    @Test func aSourcePairBeyondTheTapIsRefused() {
+        for (layout, first) in [([2], 2), ([2], 3), ([32], 32), ([1], 2), ([1, 1], 2)] {
+            #expect(throws: RouterError.self, "layout \(layout) pair \(first)") {
+                try ChannelMapper.routes(
+                    source: ChannelLayout(channelsPerBuffer: layout),
+                    destination: ChannelLayout(channelsPerBuffer: [4]),
+                    pair: Samples.pair(1),
+                    sourcePair: Samples.pair(first)
+                )
+            }
+        }
+    }
+
+    // MARK: Which channels carry signal
+
+    private func flags(_ input: Buffers, count: Int) -> [UInt32] {
+        let memory = UnsafeMutablePointer<UInt32>.allocate(capacity: count + 2)
+        memory.initialize(repeating: 0, count: count + 2)
+        defer { memory.deallocate() }
+        ChannelMapper.markActive(input: input.list.unsafePointer, flags: memory, flagCount: count)
+        return Array(UnsafeBufferPointer(start: memory, count: count + 2))
+    }
+
+    @Test func markActiveFlagsChannelsWithSignalOverAllBuffers() {
+        // Buffer 0 has 3 channels, buffer 1 has 2. Signal on global channel 1, and on global
+        // channel 3 in the last frame only. Global channel 4 holds negative zero.
+        let input = Buffers(channelsPerBuffer: [3, 2], frames: 4) { buffer, frame, channel in
+            if buffer == 0 && channel == 1 { return 0.5 }
+            if buffer == 1 && channel == 0 { return frame == 3 ? -0.25 : 0 }
+            if buffer == 1 && channel == 1 { return -0.0 }
+            return 0
+        }
+        #expect(flags(input, count: 5) == [0, 1, 0, 1, 0, 0, 0])
+    }
+
+    @Test func markActiveStaysInsideTheFlagMemory() {
+        let input = Buffers(channelsPerBuffer: [3, 2], frames: 2) { _, _, _ in 1 }
+        // Only 4 flags. Global channel 4 is not recorded, the two words behind stay 0.
+        #expect(flags(input, count: 4) == [1, 1, 1, 1, 0, 0])
+    }
+
+    @Test func activitySeparatesTapAndDeviceChannels() {
+        let found = ChannelMapper.activity(active: [1, 32, 33, 63], inputBuffers: [32, 32], tapBuffers: 1..<2)
+        #expect(found.device == [2])
+        #expect(found.tap == [1, 2, 32])
+        let tapFirst = ChannelMapper.activity(active: [0, 1, 2], inputBuffers: [2, 32], tapBuffers: 0..<1)
+        #expect(tapFirst.tap == [1, 2])
+        #expect(tapFirst.device == [1])
+        let split = ChannelMapper.activity(active: [0, 1, 2], inputBuffers: [1, 1, 1], tapBuffers: 1..<3)
+        #expect(split.device == [1])
+        #expect(split.tap == [1, 2])
+        let around = ChannelMapper.activity(active: [0, 2, 4], inputBuffers: [2, 2, 2], tapBuffers: 1..<2)
+        #expect(around.device == [1, 3])
+        #expect(around.tap == [1])
+        let none = ChannelMapper.activity(active: [], inputBuffers: [32, 2], tapBuffers: 1..<2)
+        #expect(none.tap.isEmpty && none.device.isEmpty)
+    }
+
     // MARK: Layout and route building
 
     @Test func locateFindsEdgesAndRejectsOutsideValues() {

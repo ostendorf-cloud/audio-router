@@ -10,6 +10,7 @@ public enum RouterError: Error, Equatable, CustomStringConvertible {
     case coreAudio(operation: String, status: Int32)
     case unsupportedFormat(String)
     case ambiguousTapStream(device: String, buffers: [Int], tapShape: [Int])
+    case unprovableTapOrder(device: String, buffers: [Int], tapShape: [Int])
     case sessionAlreadyStopped
     case teardownFailed([String])
 
@@ -41,6 +42,13 @@ public enum RouterError: Error, Equatable, CustomStringConvertible {
                 "Cannot tell the tap from the input channels of \(device): input buffers are \(buffers),"
                 + " the tap is \(tapShape). Refusing to route, a device input could reach the output."
                 + " A device with an input stream of the same shape as the tap is not supported yet."
+        case .unprovableTapOrder(let device, let buffers, let tapShape):
+            return
+                "Cannot tell the tap from the input channels of \(device): input buffers are \(buffers),"
+                + " the tap is \(tapShape), and the device inputs have the same shape, so the buffer shapes"
+                + " cannot prove the order. Refusing to route, a device input could reach the output."
+                + " Name the tap buffer with --tap-buffer <n> (counted from 0). On the X32 the tap was measured"
+                + " in buffer 1 with the stereo mixdown tap ([32, 2]), so --tap-buffer 1 is the measured order."
         case .sessionAlreadyStopped:
             return "The route was stopped before it started."
         case .teardownFailed(let messages):

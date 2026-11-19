@@ -51,6 +51,14 @@ public final class RouteSession: @unchecked Sendable {
         return backend.routeInfo(handle: io)
     }
 
+    /// The input channels that carried signal since the start, nil before the start and after the stop.
+    public func activeInputChannels() -> [Int]? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let io, !stopped else { return nil }
+        return backend.activeInputChannels(handle: io)
+    }
+
     /// The levels of the last full interval, nil when the meter is off or still priming.
     public func meterReading() -> MeterReading? {
         lock.lock()
@@ -68,13 +76,16 @@ public final class RouteSession: @unchecked Sendable {
         do {
             let tap = try backend.createTap(
                 processes: plan.processes.map(\.objectID),
-                name: "audio-router \(plan.appBundleID)"
+                name: "audio-router \(plan.appBundleID)",
+                mode: plan.tapMode,
+                deviceUID: plan.device.uid
             )
             self.tap = tap
             let aggregate = try backend.createAggregate(deviceUID: plan.device.uid, tap: tap)
             self.aggregate = aggregate
             io = try backend.startIO(
-                aggregate: aggregate, tap: tap, device: plan.device, channels: plan.channels, meter: meter)
+                aggregate: aggregate, tap: tap, device: plan.device, channels: plan.channels,
+                sourceChannels: plan.sourceChannels, tapBuffer: plan.tapBuffer, meter: meter)
         } catch {
             let leftovers = teardownLocked()
             let thrown: Error =

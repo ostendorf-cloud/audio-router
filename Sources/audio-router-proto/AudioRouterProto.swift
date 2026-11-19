@@ -117,12 +117,21 @@ struct AudioRouterProto {
                 break
             case .present:
                 timer.cancel()
+                // Two seconds later, name the channels that carried signal. It shows where the
+                // app sits in the tap and whether a device input is hot.
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
+                    guard let active = session.activeInputChannels(), let info = session.routeInfo() else { return }
+                    let found = ChannelMapper.activity(
+                        active: active, inputBuffers: info.inputBuffers, tapBuffers: info.tapBuffers)
+                    let line = Formatting.activity(
+                        tap: found.tap, device: found.device, preferred: info.preferredStereo)
+                    Diagnostics.write(line + "\n", to: STDOUT_FILENO)
+                }
             case .silent:
                 timer.cancel()
                 Diagnostics.write(
-                    "warning: no audio arrived in 10 seconds. If \(plan.appBundleID) is playing, the system audio "
-                        + "capture permission may be missing or denied for this terminal app: a denied tap may "
-                        + "deliver silence instead of an error. See docs/prototype-findings.md.\n")
+                    Formatting.silenceWarning(
+                        bundleID: plan.appBundleID, mode: plan.tapMode, deviceName: plan.device.name))
             }
         }
         timer.resume()

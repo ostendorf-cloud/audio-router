@@ -39,11 +39,20 @@ public struct TapInfo: Equatable, Sendable {
     public let isInterleaved: Bool
     /// Sample rate of the tap format in Hz, 0 when unknown.
     public let sampleRate: Double
+    /// How the tap was made.
+    public let mode: TapMode
+    /// `isMixdown` and `isExclusive` of the description, read back after the tap was made.
+    public let isMixdown: Bool
+    public let isExclusive: Bool
 
     public init(
         objectID: ObjectID, uid: String, channelCount: Int = 2, isInterleaved: Bool = true,
-        sampleRate: Double = 0
+        sampleRate: Double = 0, mode: TapMode = .stereoMixdown, isMixdown: Bool = false,
+        isExclusive: Bool = false
     ) {
+        self.mode = mode
+        self.isMixdown = isMixdown
+        self.isExclusive = isExclusive
         self.objectID = objectID
         self.uid = uid
         self.channelCount = channelCount
@@ -78,12 +87,35 @@ public struct RouteInfo: Equatable, Sendable {
     /// Nominal sample rates in Hz, nil when Core Audio did not answer.
     public let aggregateSampleRate: Double?
     public let deviceSampleRate: Double?
+    /// How the tap buffer was found.
+    public let tapBufferChoice: TapBufferChoice
+    /// The tap channels (from 1) the route copies, and the mode the tap was made in.
+    public let sourceChannels: ChannelPair
+    public let tapMode: TapMode
+    /// `isMixdown` and `isExclusive` of the tap description, read back after the tap was made.
+    public let tapIsMixdown: Bool
+    public let tapIsExclusive: Bool
+    /// Read only probe results of the device stream mode, one line each. They never decide.
+    public let probes: [String]
+    /// `kAudioDevicePropertyPreferredChannelsForStereo` of the target device (output scope), as
+    /// text. Information only.
+    public let preferredStereo: String
 
     public init(
         tap: StreamFormatInfo, inputBuffers: [Int], tapBuffers: Range<Int>, outputBuffers: [Int],
         inputStreams: [StreamFormatInfo], outputStreams: [StreamFormatInfo],
-        aggregateSampleRate: Double?, deviceSampleRate: Double?
+        aggregateSampleRate: Double?, deviceSampleRate: Double?,
+        tapBufferChoice: TapBufferChoice = .uniqueShape, sourceChannels: ChannelPair = .firstPair,
+        tapMode: TapMode = .stereoMixdown, tapIsMixdown: Bool = false, tapIsExclusive: Bool = false,
+        probes: [String] = [], preferredStereo: String = "not available"
     ) {
+        self.tapIsMixdown = tapIsMixdown
+        self.tapIsExclusive = tapIsExclusive
+        self.probes = probes
+        self.preferredStereo = preferredStereo
+        self.tapBufferChoice = tapBufferChoice
+        self.sourceChannels = sourceChannels
+        self.tapMode = tapMode
         self.tap = tap
         self.inputBuffers = inputBuffers
         self.tapBuffers = tapBuffers
@@ -98,9 +130,10 @@ public struct RouteInfo: Equatable, Sendable {
 /// The side effects of one route: tap, aggregate device and IO proc. `RouteSession` drives it and
 /// owns the order of creation and teardown.
 public protocol AudioRoutingBackend: Sendable {
-    /// Creates a private stereo tap over the given process objects. The tap mutes the app only
-    /// while a client reads it (`mutedWhenTapped`), so a stopped IO proc lets the app play again.
-    func createTap(processes: [ObjectID], name: String) throws -> TapInfo
+    /// Creates a private tap over the given process objects. `mode` says how, `deviceUID` is the
+    /// target device that the device stream mode taps. The tap mutes the app only while a client
+    /// reads it (`mutedWhenTapped`), so a stopped IO proc lets the app play again.
+    func createTap(processes: [ObjectID], name: String, mode: TapMode, deviceUID: String) throws -> TapInfo
 
     /// Creates a private aggregate device with `deviceUID` as main sub device and the tap as
     /// sub tap, drift compensation on.
@@ -108,9 +141,16 @@ public protocol AudioRoutingBackend: Sendable {
 
     /// Registers the IO proc that copies the tap onto `channels` and starts it. Throws when the
     /// tap cannot be told from the device's own input channels or a stream format is not 32 bit
-    /// float. With `meter` the IO proc also accumulates levels, see `readMeter`.
-    func startIO(aggregate: ObjectID, tap: TapInfo, device: OutputDevice, channels: ChannelPair, meter: Bool)
-        throws -> IOHandle
+    /// float. `sourceChannels` are the tap channels to copy, `tapBuffer` forces the first tap
+    /// buffer. With `meter` the IO proc also accumulates levels, see `readMeter`.
+    func startIO(
+        aggregate: ObjectID, tap: TapInfo, device: OutputDevice, channels: ChannelPair,
+        sourceChannels: ChannelPair, tapBuffer: Int?, meter: Bool
+    ) throws -> IOHandle
+
+    /// The channels of the aggregate's input side that carried a sample that is not zero since the
+    /// start, as indices over all input buffers in order (buffer major). Nil for an unknown handle.
+    func activeInputChannels(handle: IOHandle) -> [Int]?
 
     /// The layout and formats found when the IO proc started, nil for an unknown handle.
     func routeInfo(handle: IOHandle) -> RouteInfo?

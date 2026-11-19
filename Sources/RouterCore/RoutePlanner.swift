@@ -9,6 +9,24 @@ public struct RoutePlan: Equatable, Sendable {
     public let appBundleID: String
     /// Every process of the app, helpers included. The tap covers exactly these.
     public let processes: [AudioProcess]
+    public let tapMode: TapMode
+    /// The tap channels that carry the app, counted from 1.
+    public let sourceChannels: ChannelPair
+    /// Forced index of the first tap buffer, nil to detect it.
+    public let tapBuffer: Int?
+
+    public init(
+        device: OutputDevice, channels: ChannelPair, appBundleID: String, processes: [AudioProcess],
+        tapMode: TapMode = .stereoMixdown, sourceChannels: ChannelPair = .firstPair, tapBuffer: Int? = nil
+    ) {
+        self.device = device
+        self.channels = channels
+        self.appBundleID = appBundleID
+        self.processes = processes
+        self.tapMode = tapMode
+        self.sourceChannels = sourceChannels
+        self.tapBuffer = tapBuffer
+    }
 }
 
 public enum RoutePlanner {
@@ -40,7 +58,10 @@ public enum RoutePlanner {
             device: device,
             channels: arguments.channels,
             appBundleID: wanted,
-            processes: members
+            processes: members,
+            tapMode: arguments.tapMode,
+            sourceChannels: arguments.sourceChannels,
+            tapBuffer: arguments.tapBuffer
         )
     }
 }
