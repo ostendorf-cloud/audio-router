@@ -41,6 +41,9 @@ Channels count from 1 and must be two adjacent channels.
 `--tap-mode stereo-mixdown` loses 24 dB on a 32 channel device (measured), see `docs/prototype-findings.md`
 section 9. `--source-channels` names the tap channels that carry the app (default 1,2).
 `--tap-buffer` forces the tap buffer (from 0). Without it the tap stream is found by the stream id diff.
+About two seconds after the first signal the route prints the signal line and, through `TapCheck`, a warning
+when the tap side shows channels outside `--source-channels` or none while a device input is active.
+It is a warning, never a refusal.
 `--meter` prints peak and RMS in dBFS of the tap and the output to stdout once a second.
 `ChannelMapper.measure` runs next to `render` in the IO proc with the same real time contract.
 

@@ -121,11 +121,9 @@ struct AudioRouterProto {
                 // app sits in the tap and whether a device input is hot.
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
                     guard let active = session.activeInputChannels(), let info = session.routeInfo() else { return }
-                    let found = ChannelMapper.activity(
-                        active: active, inputBuffers: info.inputBuffers, tapBuffers: info.tapBuffers)
-                    let line = Formatting.activity(
-                        tap: found.tap, device: found.device, preferred: info.preferredStereo)
-                    Diagnostics.write(line + "\n", to: STDOUT_FILENO)
+                    let report = TapCheck.report(active: active, info: info)
+                    Diagnostics.write(report.activity + "\n", to: STDOUT_FILENO)
+                    if let warning = report.warning { Diagnostics.write(warning + "\n") }
                 }
             case .silent:
                 timer.cancel()

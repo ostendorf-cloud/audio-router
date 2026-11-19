@@ -54,7 +54,8 @@ public enum ChannelMapper {
     /// one buffer with all channels when interleaved, one buffer per channel otherwise. It
     /// refuses when the shape appears more than once, because then the tap cannot be told from a
     /// device input and a microphone could be routed to the output. That includes a device with
-    /// one stereo input stream (layout `[2, 2]`). Phase 1 refuses it and names the device.
+    /// one stereo input stream (layout `[2, 2]`). This function refuses it and names the device.
+    /// `chooseTapBuffers` accepts it when the stream id diff names the buffer.
     /// A non interleaved tap is handled: its shape is one buffer per channel.
     public static func tapBuffers(
         in input: ChannelLayout,
