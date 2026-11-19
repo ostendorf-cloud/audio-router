@@ -57,8 +57,8 @@ section 9. `--source-channels` names the tap channels that carry the app (defaul
 - The tap uses `mutedWhenTapped`, so a stopped IO proc lets the app play again. Do not switch to `muted`
   without a new decision in the concept.
 - The target device is a sub device of the aggregate. `ChannelMapper.chooseTapBuffers` finds the tap among the
-  device inputs and refuses when that is ambiguous. Keep that check. The measured order (device inputs first, tap
-  last) is the only evidence for the order rule, no header defines it. Do not widen the rule.
+  device inputs and refuses when that is ambiguous. Keep that check. When the device inputs have the tap shape the
+  layout cannot prove the order and the route needs `--tap-buffer`. Do not widen the rule.
 - `SIGTSTP` is ignored on purpose, a suspended process cannot tear down.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.

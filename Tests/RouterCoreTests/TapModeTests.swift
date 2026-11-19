@@ -171,6 +171,21 @@ struct TapModeSessionTests {
         #expect(session.activeInputChannels() == nil, "stopped")
     }
 
+    @Test func anExclusiveDeviceStreamTapIsRefusedBeforeAnythingIsCreated() {
+        let backend = FakeBackend(exclusiveTap: true)
+        #expect(throws: RouterError.self) { try RouteSession(backend: backend, plan: plan(.deviceStream)).start() }
+        #expect(backend.calls.isEmpty)
+        // The mixdown mode does not read the flag.
+        #expect(throws: Never.self) { try RouteSession(backend: backend, plan: plan(.stereoMixdown)).start() }
+    }
+
+    @Test func theValidationOnlyRefusesAnExclusiveDeviceStream() throws {
+        try TapMode.deviceStream.validateDescription(isExclusive: false)
+        try TapMode.stereoMixdown.validateDescription(isExclusive: false)
+        try TapMode.stereoMixdown.validateDescription(isExclusive: true)
+        #expect(throws: RouterError.self) { try TapMode.deviceStream.validateDescription(isExclusive: true) }
+    }
+
     @Test func theTapInfoRemembersItsMode() {
         #expect(TapInfo(objectID: 1, uid: "u").mode == .stereoMixdown)
         #expect(TapInfo(objectID: 1, uid: "u", mode: .deviceStream).mode == .deviceStream)
@@ -181,9 +196,32 @@ struct TapModeFormattingTests {
     @Test func theActivityLineNamesTapAndDeviceChannels() {
         #expect(
             Formatting.activity(tap: [1, 2], device: [])
-                == "signal on tap channels: 1,2 | on device input channels: none")
+                == "signal on tap channels: 1,2 | on device input channels (noise counts): none")
         #expect(
-            Formatting.activity(tap: [], device: [3]) == "signal on tap channels: none | on device input channels: 3")
+            Formatting.activity(tap: [], device: [3], preferred: "1,2")
+                == "signal on tap channels: none | on device input channels (noise counts): 3"
+                + " | device preferred stereo pair: 1,2")
+    }
+
+    @Test func theSilenceWarningNamesTheDeviceOnlyInTheDeviceStreamMode() {
+        let plain = Formatting.silenceWarning(bundleID: "app", mode: .stereoMixdown, deviceName: "X-USB")
+        #expect(plain.contains("permission"))
+        #expect(!plain.contains("X-USB"))
+        let stream = Formatting.silenceWarning(bundleID: "app", mode: .deviceStream, deviceName: "X-USB")
+        #expect(stream.contains("permission"))
+        #expect(stream.contains("plays to X-USB"))
+        #expect(stream.hasSuffix("\n"))
+    }
+
+    @Test func theProbesAndTheDescriptionFlagsAreListed() {
+        let info = RouteInfo(
+            tap: StreamFormatInfo(sampleRate: 48000, channels: 32, interleaved: true),
+            inputBuffers: [32, 32], tapBuffers: 1..<2, outputBuffers: [32],
+            inputStreams: [], outputStreams: [], aggregateSampleRate: nil, deviceSampleRate: nil,
+            tapIsMixdown: false, tapIsExclusive: true, probes: ["probe: a", "probe: b"])
+        let lines = Formatting.routeInfo(info)
+        #expect(lines.suffix(3) == ["tap description: mixdown false, exclusive true", "probe: a", "probe: b"])
+        #expect(info.preferredStereo == "not available")
     }
 
     @Test func theRouteInfoSaysHowTheTapBufferWasChosen() {
@@ -193,7 +231,7 @@ struct TapModeFormattingTests {
                 inputBuffers: [32, 32], tapBuffers: 1..<2, outputBuffers: [32],
                 inputStreams: [], outputStreams: [], aggregateSampleRate: 48000, deviceSampleRate: 48000,
                 tapBufferChoice: choice, sourceChannels: Samples.pair(source), tapMode: mode)
-            return Formatting.routeInfo(info).last ?? ""
+            return Formatting.routeInfo(info).first { $0.hasPrefix("tap mode:") } ?? ""
         }
         #expect(
             last(.uniqueShape)
@@ -202,8 +240,8 @@ struct TapModeFormattingTests {
         #expect(named.hasPrefix("tap mode: stereo-mixdown, source channels 3,4"))
         #expect(last(.override).hasSuffix("tap buffer: named by --tap-buffer"))
         let order = last(.lastByMeasuredOrder)
-        #expect(order.contains("order measured on one device"))
-        #expect(order.contains("no header defines"))
+        #expect(order.contains("the layout excludes the other order"))
+        #expect(order.contains("content is not proven"))
         #expect(order.contains("--tap-buffer"))
     }
 }

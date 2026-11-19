@@ -85,7 +85,11 @@ final class FakeBackend: AudioRoutingBackend, @unchecked Sendable {
     private let failing: Set<String>
     let gates: [String: Gate]
 
-    init(failing: Set<String> = [], gating: Set<String> = []) {
+    /// What the tap description reads back as `isExclusive`.
+    private let exclusiveTap: Bool
+
+    init(failing: Set<String> = [], gating: Set<String> = [], exclusiveTap: Bool = false) {
+        self.exclusiveTap = exclusiveTap
         self.failing = failing
         self.gates = Dictionary(uniqueKeysWithValues: gating.map { ($0, Gate()) })
     }
@@ -107,6 +111,7 @@ final class FakeBackend: AudioRoutingBackend, @unchecked Sendable {
     }
 
     func createTap(processes: [ObjectID], name: String, mode: TapMode, deviceUID: String) throws -> TapInfo {
+        try mode.validateDescription(isExclusive: exclusiveTap)
         lock.withLock { tapRequest = (mode, deviceUID) }
         try record("createTap \(processes.map(String.init).joined(separator: ","))")
         return TapInfo(objectID: 10, uid: "tap-uid", channelCount: 2, isInterleaved: true, mode: mode)

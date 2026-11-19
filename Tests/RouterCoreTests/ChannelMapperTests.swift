@@ -389,9 +389,36 @@ struct ChannelMapperTests {
         }
     }
 
-    @Test func theLastBufferIsTheTapWhenTheListIsTheDeviceInputsPlusTheTap() throws {
-        let found = try choose([32, 32], deviceInputs: [32])
-        #expect(found.range == 1..<2)
+    @Test func aSymmetricListCannotProveTheOrderAndIsRefused() {
+        // Device [32] and tap [32]: device+tap and tap+device are the same list.
+        #expect(throws: RouterError.unprovableTapOrder(device: "X32", buffers: [32, 32], tapShape: [32])) {
+            try choose([32, 32], deviceInputs: [32])
+        }
+        #expect(throws: RouterError.unprovableTapOrder(device: "X32", buffers: [1, 1, 1, 1], tapShape: [1, 1])) {
+            try choose([1, 1, 1, 1], channels: 2, interleaved: false, deviceInputs: [1, 1])
+        }
+        // Two device inputs of the same shape: still the same list in both orders.
+        #expect(throws: RouterError.unprovableTapOrder(device: "X32", buffers: [32, 32, 32], tapShape: [32])) {
+            try choose([32, 32, 32], deviceInputs: [32, 32])
+        }
+        let text = "\(RouterError.unprovableTapOrder(device: "X32", buffers: [32, 32], tapShape: [32]))"
+        #expect(text.contains("--tap-buffer"))
+        #expect(text.contains("[32, 2]"))
+        #expect(text.contains("--tap-buffer 1"))
+    }
+
+    @Test func theExplicitBufferWorksOnASymmetricList() throws {
+        for index in [0, 1] {
+            let found = try choose([32, 32], deviceInputs: [32], override: index)
+            #expect(found.range == index..<index + 1)
+            #expect(found.choice == .override)
+        }
+    }
+
+    @Test func anAsymmetricListExcludesTheOtherOrder() throws {
+        // Device [2, 32] then tap [32] is [2, 32, 32]. Tap first would be [32, 2, 32].
+        let found = try choose([2, 32, 32], deviceInputs: [2, 32])
+        #expect(found.range == 2..<3)
         #expect(found.choice == .lastByMeasuredOrder)
     }
 
@@ -421,8 +448,8 @@ struct ChannelMapperTests {
     }
 
     @Test func aNonInterleavedTapUsesTheOrderRuleToo() throws {
-        let found = try choose([1, 1, 1, 1], channels: 2, interleaved: false, deviceInputs: [1, 1])
-        #expect(found.range == 2..<4)
+        let found = try choose([1, 1, 2, 1, 1], channels: 2, interleaved: false, deviceInputs: [1, 1, 2])
+        #expect(found.range == 3..<5)
         #expect(found.choice == .lastByMeasuredOrder)
     }
 
@@ -445,7 +472,7 @@ struct ChannelMapperTests {
         // 32 device inputs full of 7s, then a 32 channel tap whose channel n holds 100 + n.
         let layout = ChannelLayout(channelsPerBuffer: [32, 32])
         let found = try ChannelMapper.chooseTapBuffers(
-            in: layout, tapChannels: 32, interleaved: true, deviceInputBuffers: [32])
+            in: layout, tapChannels: 32, interleaved: true, deviceInputBuffers: [32], override: 1)
         for (source, expected) in [(1, (100, 101)), (5, (104, 105)), (31, (130, 131))] {
             let routes = try ChannelMapper.routes(
                 source: ChannelLayout(channelsPerBuffer: Array(layout.channelsPerBuffer[found.range])),

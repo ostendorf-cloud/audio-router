@@ -81,6 +81,7 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
             // "the format of the tap will match the format of this stream"). No mixdown.
             description = CATapDescription(processes: processes, deviceUID: deviceUID, stream: 0)
         }
+        try mode.validateDescription(isExclusive: description.isExclusive)
         description.name = name
         // The app is silent on its normal output only while a client reads the tap
         // (CATapDescription.h, CATapMutedWhenTapped). If the IO proc stops but the tap lives, the
@@ -110,7 +111,9 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
                 channelCount: Int(format.mChannelsPerFrame),
                 isInterleaved: format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0,
                 sampleRate: format.mSampleRate,
-                mode: mode
+                mode: mode,
+                isMixdown: description.isMixdown,
+                isExclusive: description.isExclusive
             )
         } catch {
             _ = AudioHardwareDestroyProcessTap(tapID)
@@ -207,7 +210,11 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
             deviceSampleRate: CoreAudioProperty.nominalSampleRate(device.objectID),
             tapBufferChoice: choice,
             sourceChannels: sourceChannels,
-            tapMode: tap.mode
+            tapMode: tap.mode,
+            tapIsMixdown: tap.isMixdown,
+            tapIsExclusive: tap.isExclusive,
+            probes: tap.mode == .deviceStream ? Self.probes(aggregate: aggregate, tap: tap) : [],
+            preferredStereo: Self.preferredStereo(device.objectID)
         )
 
         var procID: AudioDeviceIOProcID?
@@ -229,6 +236,49 @@ public final class CoreAudioRoutingBackend: AudioRoutingBackend, @unchecked Send
             started[handle.rawValue] = IOState(procID: procID, context: context, info: info)
             return handle
         }
+    }
+
+    /// Read only probes for the owner's first device stream run. They print, never decide and
+    /// never throw: any error shows as "not available". They look for a property that names the
+    /// tap's stream, see docs/prototype-findings.md section 9.
+    private static func probes(aggregate: ObjectID, tap: TapInfo) -> [String] {
+        func ids(_ list: [AudioObjectID]) -> String {
+            list.isEmpty ? "none" : list.map(String.init).joined(separator: ",")
+        }
+        var lines = ["probe: aggregate object \(aggregate), tap object \(tap.objectID)"]
+        let streams: [AudioObjectID]? = try? CoreAudioProperty.array(
+            aggregate, kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeInput, initial: 0)
+        if let streams {
+            lines.append("probe: aggregate input streams \(ids(streams))")
+            for stream in streams {
+                let owner: AudioObjectID? = try? CoreAudioProperty.value(
+                    stream, kAudioObjectPropertyOwner, initial: AudioObjectID(0))
+                lines.append("probe: stream \(stream) owner \(owner.map(String.init) ?? "not available")")
+            }
+        } else {
+            lines.append("probe: aggregate input streams not available")
+        }
+        let owned: [AudioObjectID]? = try? CoreAudioProperty.array(
+            tap.objectID, kAudioObjectPropertyOwnedObjects, initial: 0)
+        lines.append("probe: tap owned objects \(owned.map(ids) ?? "not available")")
+        var address = CoreAudioProperty.address(kAudioAggregateDevicePropertyTapList)
+        var settable: DarwinBoolean = false
+        let status = AudioObjectIsPropertySettable(aggregate, &address, &settable)
+        lines.append(
+            "probe: aggregate tap list settable "
+                + (status == noErr ? (settable.boolValue ? "yes" : "no") : "not available"))
+        return lines
+    }
+
+    /// The pair the device names for stereo output, for information. Not used as a default.
+    private static func preferredStereo(_ device: AudioObjectID) -> String {
+        guard
+            let pair: [UInt32] = try? CoreAudioProperty.array(
+                device, kAudioDevicePropertyPreferredChannelsForStereo,
+                scope: kAudioObjectPropertyScopeOutput, initial: UInt32(0)),
+            pair.count == 2
+        else { return "not available" }
+        return "\(pair[0]),\(pair[1])"
     }
 
     public func routeInfo(handle: IOHandle) -> RouteInfo? {

@@ -77,15 +77,26 @@ public enum TapMode: String, Equatable, Sendable, CaseIterable {
     /// `CATapDescription(processes:deviceUID:stream:)`. The tap has the format of one output
     /// stream of the target device, no mixdown.
     case deviceStream = "device-stream"
+
+    /// Refuses a description that reads back as exclusive in the device stream mode. The header
+    /// text of the stream initializer calls its `processes` the ones "to exclude", which looks
+    /// like a copy paste, so the flag is read back instead of trusted.
+    public func validateDescription(isExclusive: Bool) throws {
+        if self == .deviceStream && isExclusive {
+            throw RouterError.unsupportedFormat(
+                "the device stream tap description reads back as exclusive, it would tap every process "
+                    + "except the app. Refusing to start.")
+        }
+    }
 }
 
 /// Which input buffer holds the tap, and how that was decided. Printed at start.
 public enum TapBufferChoice: Equatable, Sendable {
     /// Only one input buffer has the tap shape.
     case uniqueShape
-    /// Several buffers have the tap shape. The last one is taken, because the measured order is
-    /// device inputs first and tap last (not defined by the headers), and the buffer list is
-    /// exactly the device's own input buffers plus the tap shape.
+    /// Several buffers have the tap shape. The last one is taken, because the list is exactly the
+    /// device's own input buffers plus the tap shape and differs from the tap shape plus the
+    /// device inputs, so the layout excludes the other order.
     case lastByMeasuredOrder
     /// The user named the buffer with `--tap-buffer`.
     case override

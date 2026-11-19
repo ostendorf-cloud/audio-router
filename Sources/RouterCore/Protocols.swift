@@ -41,12 +41,18 @@ public struct TapInfo: Equatable, Sendable {
     public let sampleRate: Double
     /// How the tap was made.
     public let mode: TapMode
+    /// `isMixdown` and `isExclusive` of the description, read back after the tap was made.
+    public let isMixdown: Bool
+    public let isExclusive: Bool
 
     public init(
         objectID: ObjectID, uid: String, channelCount: Int = 2, isInterleaved: Bool = true,
-        sampleRate: Double = 0, mode: TapMode = .stereoMixdown
+        sampleRate: Double = 0, mode: TapMode = .stereoMixdown, isMixdown: Bool = false,
+        isExclusive: Bool = false
     ) {
         self.mode = mode
+        self.isMixdown = isMixdown
+        self.isExclusive = isExclusive
         self.objectID = objectID
         self.uid = uid
         self.channelCount = channelCount
@@ -86,14 +92,27 @@ public struct RouteInfo: Equatable, Sendable {
     /// The tap channels (from 1) the route copies, and the mode the tap was made in.
     public let sourceChannels: ChannelPair
     public let tapMode: TapMode
+    /// `isMixdown` and `isExclusive` of the tap description, read back after the tap was made.
+    public let tapIsMixdown: Bool
+    public let tapIsExclusive: Bool
+    /// Read only probe results of the device stream mode, one line each. They never decide.
+    public let probes: [String]
+    /// `kAudioDevicePropertyPreferredChannelsForStereo` of the target device (output scope), as
+    /// text. Information only.
+    public let preferredStereo: String
 
     public init(
         tap: StreamFormatInfo, inputBuffers: [Int], tapBuffers: Range<Int>, outputBuffers: [Int],
         inputStreams: [StreamFormatInfo], outputStreams: [StreamFormatInfo],
         aggregateSampleRate: Double?, deviceSampleRate: Double?,
         tapBufferChoice: TapBufferChoice = .uniqueShape, sourceChannels: ChannelPair = .firstPair,
-        tapMode: TapMode = .stereoMixdown
+        tapMode: TapMode = .stereoMixdown, tapIsMixdown: Bool = false, tapIsExclusive: Bool = false,
+        probes: [String] = [], preferredStereo: String = "not available"
     ) {
+        self.tapIsMixdown = tapIsMixdown
+        self.tapIsExclusive = tapIsExclusive
+        self.probes = probes
+        self.preferredStereo = preferredStereo
         self.tapBufferChoice = tapBufferChoice
         self.sourceChannels = sourceChannels
         self.tapMode = tapMode

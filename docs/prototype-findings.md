@@ -260,25 +260,77 @@ So there is no documented way to name the tap stream, and nothing is claimed as 
 code does instead (`ChannelMapper.chooseTapBuffers`):
 
 1. One buffer of the tap shape: that one. As before.
-2. Several buffers of the tap shape: the last one, but only when the aggregate's input list is
-   exactly the device's own input buffers (read from the device itself) followed by the tap shape.
-   This rests on the order measured on the X32, device inputs first and tap last. It is printed at
-   start (`tap buffer: ... by the order measured on one device`).
-3. Anything else with several matches: refused, as before.
-4. `--tap-buffer <n>` forces the first tap buffer (counted from 0). The shape found there must
+2. Several buffers of the tap shape, and the layout can tell the order: the last one. This needs
+   the aggregate's input list to be exactly the device's own input buffers (read from the device
+   itself) followed by the tap shape, and that list to differ from the tap shape followed by the
+   device inputs. Example: device `[2, 32]` and tap `[32]` give `[2, 32, 32]`, tap first would be
+   `[32, 2, 32]`. What this proves: the layout excludes the other order, assuming the aggregate
+   lists its parts one after the other. What it does not prove: anything about the content of
+   the buffers.
+3. Several buffers of the tap shape and the device inputs have the tap shape too (device `[32]`
+   and tap `[32]`, the X32 with a 32 channel tap): both orders give `[32, 32]`, so the layout
+   proves nothing. The route refuses and asks for `--tap-buffer <n>`. The measured order on the
+   X32 is the tap in buffer 1 with the stereo mixdown tap (`[32, 2]`), so `--tap-buffer 1` is the
+   measured order. Whether the 32 channel tap lands in buffer 1 too is the first thing the run
+   must show.
+4. Anything else with several matches: refused, as before.
+5. `--tap-buffer <n>` forces the first tap buffer (counted from 0). The shape found there must
    equal the tap shape, otherwise the route refuses. It is printed as `named by --tap-buffer`.
 
-Remaining risk: if another device puts its streams after the tap, rule 2 would copy a device input
-to the output. The route prints which channels carried signal, split into tap channels and device
-input channels (`signal on tap channels: ... | on device input channels: ...`). With the sine
-playing, the tap channels must be the app's pair and nothing else. If the device input channels
-list shows the signal's channels instead, stop and use `--tap-buffer`. This check is a diagnostic
-for the owner, the tool does not refuse on it.
+The route prints which channels carried signal, split into tap channels and device input channels
+(`signal on tap channels: ... | on device input channels (noise counts): ... | device preferred
+stereo pair: ...`). The flags are sticky and any non zero sample counts, so preamp noise lights
+device input channels. Read it like this, with the -6 dBFS sine playing in QuickTime:
+
+- RIGHT: the tap side shows exactly `1,2`. The device side shows anything (noise).
+- WRONG: the tap side shows 32 channels or channels other than `1,2`, or the tap side is `none`
+  while `tap peak` is not `-inf`. Then the buffer is a device input. Stop, try the other
+  `--tap-buffer`.
+
+This is a diagnostic for the owner, the tool does not refuse on it. `device preferred stereo
+pair` is `kAudioDevicePropertyPreferredChannelsForStereo` of the target device (output scope), for
+information only, not used as a default.
+
+### Probes for an order free choice
+
+In `device-stream` mode the route prints read only probes (`probe:` lines). They never decide and
+never throw, an error prints `not available`:
+
+- For each aggregate input stream, `kAudioObjectPropertyOwner` (`AudioHardwareBase.h`).
+- For the tap object, `kAudioObjectPropertyOwnedObjects`.
+- Whether `kAudioAggregateDevicePropertyTapList` is settable (`AudioObjectIsPropertySettable`).
+
+Look for a stream ID that appears in the tap's owned objects, or an owner of a stream that equals
+the tap object ID. That would name the tap's stream and allow an order free choice. It is
+evidence only, nothing relies on it yet. Not verified.
+
+Planned order free fix, not implemented. Create the aggregate with the sub device only and read
+`kAudioDevicePropertyStreams` (input scope). Add the tap and read it again. The new stream IDs
+are the tap's. Unverified assumptions: the aggregate accepts a changed tap list while it exists
+(the settable probe shows part of this), the stream IDs of the sub device stay the same, and the
+new IDs map to buffer positions in the same order as the IO proc's buffer list.
+
+Other limits, stated plainly:
+
+- The stream index scope is undocumented (input and output streams, or output only), and so is
+  the behaviour of an index that is out of range. Only index 0 is used.
+- The activity flags are written by the audio thread and read by the control thread without
+  synchronisation, a formal data race like `signalSeen`. They are a diagnostic only.
+- A device stream tap only holds audio that goes to the target device (header: "destined for the
+  selected device stream"). If the app plays to another output device, the tap is silent. This is
+  a limit of the mode: it works only when the app already plays to the target device. The 10
+  second silence warning says so in this mode and names the device.
+- The header text of the stream initializer calls its `processes` the ones "to exclude". That
+  looks like a copy paste. The route reads `isExclusive` back, prints it next to `isMixdown`
+  (`tap description:`) and refuses to start when it is true in this mode.
 
 Results to fill in, one row per run. Use release builds, QuickTime Player at full app volume, the
 system volume unchanged, and the sine files from the earlier steps. Expected on a unity tap: `tap
 peak` -6.0 and -20.0 dBFS (within 0.2 dB). Expected on the old mixdown on the X-USB: about -30.1
 and -44.1 dBFS.
+
+For the MacBook speaker rows, set the speakers as the macOS default output and use the speakers'
+uid from `devices` as `--device`. The app must already play to that device, see the limit above.
 
 | Default output of macOS | `--tap-mode` | Sine | `tap format` line | Tap buffer line | Signal line | `tap peak` | `tap rms` | Unity within 0.2 dB |
 | ----------------------- | ------------ | ---- | ----------------- | --------------- | ----------- | ---------- | --------- | ------------------- |
@@ -292,7 +344,8 @@ and -44.1 dBFS.
 | MacBook speakers (2 channels) | device-stream | -20 dBFS | | | | | | |
 
 - Does Spotify's stereo land on tap channels 1,2 in `device-stream` mode (signal line):
-- Does a device input channel show signal while the app plays (it must not):
+- Does the tap side of the signal line show exactly 1,2 (device side is noise and may show anything):
+- The `probe:` lines (stream owners, tap owned objects, tap list settable):
 - Which mode is unity on the X-USB, and does it hold on the MacBook speakers:
 - If `stereo-mixdown` is not unity and `device-stream` is, flip the default in `Arguments.swift`
   (`RouteArguments.init` and `parseRoute`) and in the usage text.

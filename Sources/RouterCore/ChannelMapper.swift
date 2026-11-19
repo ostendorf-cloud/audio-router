@@ -72,10 +72,12 @@ public enum ChannelMapper {
     /// - `override` names the first tap buffer. The shape found there must equal the tap shape.
     /// - `deviceInputBuffers` is the input layout of the target device read from the device
     ///   itself. When the tap shape appears more than once, the last match is taken only if the
-    ///   whole list is exactly the device inputs followed by the tap shape. That order was
-    ///   measured on one device (device inputs first, tap last). No header defines it, so the
-    ///   result says `lastByMeasuredOrder` and the caller prints it. Without
-    ///   `deviceInputBuffers` an ambiguous shape is refused, as before.
+    ///   list is exactly the device inputs followed by the tap shape AND that differs from the
+    ///   tap shape followed by the device inputs. Then the layout itself excludes the other
+    ///   order (it assumes the aggregate lists its parts one after the other). When both orders
+    ///   give the same list, for example device `[32]` and tap `[32]`, the layout proves nothing
+    ///   and the route is refused unless `override` names the buffer. Without
+    ///   `deviceInputBuffers` an ambiguous shape is refused as well.
     ///
     /// Headers checked for a provable way to name the tap stream (AudioHardware.h,
     /// AudioHardwareBase.h): `kAudioDevicePropertyIOProcStreamUsage` switches streams on and off by
@@ -117,9 +119,13 @@ public enum ChannelMapper {
                 "no input buffer of the aggregate device has the tap shape \(shape), buffers are \(buffers)")
         }
         if matches.count == 1 { return (match, .uniqueShape) }
-        // The list ending with the tap shape makes the last match the one at the end.
         guard let last = matches.last, let deviceInputBuffers, buffers == deviceInputBuffers + shape else {
             throw RouterError.ambiguousTapStream(device: deviceName, buffers: buffers, tapShape: shape)
+        }
+        // With device inputs D and tap shape T the list is D+T or T+D. If both are the same list
+        // (D == T, or D and T repeat the same shape) the layout cannot tell the order.
+        guard deviceInputBuffers + shape != shape + deviceInputBuffers else {
+            throw RouterError.unprovableTapOrder(device: deviceName, buffers: buffers, tapShape: shape)
         }
         return (last, .lastByMeasuredOrder)
     }
