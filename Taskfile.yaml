@@ -1,0 +1,56 @@
+version: "3"
+
+tasks:
+  setup:
+    desc: Install the pinned tools (not the Swift toolchain, see AGENTS.md)
+    cmds:
+      - mise trust
+      - mise install
+
+  build:
+    desc: Build the library and the prototype
+    cmds:
+      - swift build
+
+  test:
+    desc: Unit tests, no audio hardware needed
+    cmds:
+      - swift test
+
+  lint:fmt:
+    desc: Swift format check, part of the Swift toolchain
+    cmds:
+      - swift format lint --strict --recursive Package.swift Sources Tests
+
+  lint:license:
+    desc: License header check for every Swift file
+    cmds:
+      - |
+        addlicense -check -c "Simon Ostendorf" -y 2026 -l apache -s=only \
+          $(find . -name "*.swift" -not -path "./.build/*" -not -path "./.claude/worktrees/*")
+
+  lint:markdown:
+    desc: Markdown lint
+    cmds:
+      - markdownlint-cli2 "**/*.md"
+
+  lint:yaml:
+    desc: YAML lint
+    cmds:
+      - yamllint .
+
+  lint:actions:
+    desc: GitHub Actions workflow lint
+    cmds:
+      - actionlint
+
+  check:
+    desc: Everything CI runs
+    cmds:
+      - task: lint:fmt
+      - task: lint:license
+      - task: lint:markdown
+      - task: lint:yaml
+      - task: lint:actions
+      - task: build
+      - task: test

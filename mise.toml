@@ -1,0 +1,10 @@
+# Every tool this repository needs, pinned, except the Swift toolchain. The toolchain comes from
+# Xcode or the Command Line Tools: see "Deviations" in AGENTS.md. Versions are copied from
+# ostendorf-cloud/burnlink's mise.toml.
+[tools]
+task = "3"
+actionlint = "1"
+markdownlint-cli2 = "0.24.1"
+yamllint = "1"
+# addlicense has no short name in the mise registry, so it needs the explicit aqua backend prefix.
+"aqua:google/addlicense" = "1.2.0"

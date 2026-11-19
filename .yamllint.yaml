@@ -1,0 +1,13 @@
+extends: default
+
+ignore:
+  - .build/
+  # Stale worktrees from other parallel sessions on this repository.
+  - .claude/worktrees/
+
+rules:
+  line-length:
+    max: 140
+  document-start: disable
+  truthy:
+    allowed-values: ["true", "false", "on"]

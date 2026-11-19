@@ -1,0 +1,25 @@
+name: codeql
+
+# Scanning delegated to the organisation's shared reusable workflow. It runs on Linux with build
+# mode "none" for every language but Go, so it scans the workflow files only. Swift needs a macOS
+# runner and a build, which the shared workflow does not offer yet: see AGENTS.md, Deviations.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # CodeQL's own recommended default: a weekly run catches newly
+    # disclosed vulnerability patterns in code that has not changed.
+    - cron: "23 4 * * 1"
+
+permissions:
+  security-events: write
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-codeql.yaml@91979cf4cff86d00ebee28dfaf6e3b452aaeb1a9  # v0.2.2
+    with:
+      languages: '["actions"]'
