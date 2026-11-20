@@ -3,6 +3,7 @@
 
 import CoreAudio
 import Foundation
+import RouterCore
 
 /// Output devices from Core Audio.
 public struct CoreAudioDeviceProvider: AudioDeviceProviding {

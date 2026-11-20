@@ -3,6 +3,7 @@
 
 import CoreAudio
 import Foundation
+import RouterCore
 
 /// Thin typed wrappers around AudioObjectGetPropertyData. Not exercised by unit tests because
 /// they need Core Audio objects. The owner checks them on a real Mac, see AGENTS.md.

@@ -62,7 +62,8 @@ public enum RouterError: Error, Equatable, CustomStringConvertible {
 }
 
 /// Renders an OSStatus as its four character code when printable, otherwise as an empty marker.
-func fourCC(_ status: Int32) -> String {
+/// `package`, because RouterCoreAudio uses it too.
+package func fourCC(_ status: Int32) -> String {
     let value = UInt32(bitPattern: status)
     let bytes = [24, 16, 8, 0].map { UInt8((value >> UInt32($0)) & 0xFF) }
     guard bytes.allSatisfy({ $0 >= 0x20 && $0 < 0x7F }) else { return "no four character code" }

@@ -15,13 +15,21 @@ let package = Package(
     platforms: [.macOS("14.2")],
     products: [
         .library(name: "RouterCore", targets: ["RouterCore"]),
+        .library(name: "RouterCoreAudio", targets: ["RouterCoreAudio"]),
+        .executable(name: "AudioRouterApp", targets: ["AudioRouterApp"]),
         .executable(name: "audio-router-proto", targets: ["audio-router-proto"]),
     ],
     targets: [
+        // Pure logic. No Core Audio, audio or UI framework: CoreImportTests checks the imports.
         .target(name: "RouterCore"),
+        // The real Core Audio implementation of the RouterCore protocols and the IO proc.
+        .target(name: "RouterCoreAudio", dependencies: ["RouterCore"]),
+        // The SwiftUI menu bar app.
+        .executableTarget(name: "AudioRouterApp", dependencies: ["RouterCore", "RouterCoreAudio"]),
+        // The command line diagnostic tool. Not part of a release.
         .executableTarget(
             name: "audio-router-proto",
-            dependencies: ["RouterCore"],
+            dependencies: ["RouterCore", "RouterCoreAudio"],
             exclude: ["Info.plist"],
             linkerSettings: [
                 .unsafeFlags([
@@ -33,5 +41,6 @@ let package = Package(
             ]
         ),
         .testTarget(name: "RouterCoreTests", dependencies: ["RouterCore"]),
+        .testTarget(name: "RouterCoreAudioTests", dependencies: ["RouterCore", "RouterCoreAudio"]),
     ]
 )

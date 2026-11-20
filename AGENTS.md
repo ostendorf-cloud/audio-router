@@ -7,14 +7,25 @@ The global baseline already applies here and is not repeated below.
 
 ## Layout
 
-- `Sources/RouterCore` is the library. Pure logic plus the Core Audio implementation.
+- `Sources/RouterCore` is the pure logic.
+  It imports no CoreAudio, AudioToolbox, AVFoundation or AppKit.
+  `CoreImportTests` and `task lint:core-imports` enforce that.
   - `Protocols.swift` defines `AudioDeviceProviding`, `ProcessProviding` and `AudioRoutingBackend`.
   - `BundleGrouping`, `RoutePlanner`, `ArgumentParser`, `ChannelMapper`, `RouteSession` and `Formatting` are the logic.
     Unit tests cover all of them with fakes.
-  - `CoreAudio/` is the real implementation of the protocols. It needs a Mac, devices and the capture permission.
-- `Sources/audio-router-proto` is the executable. It wires signals and the real backend, nothing else.
+- `Sources/RouterCoreAudio` is the real Core Audio implementation of the protocols.
+  It needs a Mac, devices and the capture permission.
+  It holds `routerIOProc` and all code that runs on the audio thread.
+  - `ChannelMapper` is split. Its pure parts stay in `RouterCore`.
+    `render`, `markActive` and `measure` read `AudioBufferList`.
+    So they are an extension in `ChannelMapperRealTime.swift`, next to `MeterBlock`.
+  - Symbols both libraries need and no app should see are `package`, not `public`.
+- `Sources/AudioRouterApp` is the SwiftUI menu bar app. For now a menu bar icon with a Quit item.
+- `Sources/audio-router-proto` is the command line diagnostic tool, not part of a release.
+  It wires signals and the real backend, nothing else.
   `Info.plist` next to it is embedded into the binary, see below.
 - `Tests/RouterCoreTests` has the unit tests (Swift Testing) and the fakes.
+  `Tests/RouterCoreAudioTests` runs the real time code on in memory buffer lists.
 - `docs/prototype-findings.md` is a template the owner fills from a real Mac. Never fill it with guesses.
 
 ## Commands
@@ -25,7 +36,9 @@ swift test
 task check
 ```
 
-`task check` runs format, license, markdown, YAML and workflow lint, then build and test.
+`task check` runs format, license, RouterCore import, markdown, YAML and workflow lint.
+Then it builds and tests.
+`swift build` builds all four targets.
 `task --list` shows the single targets.
 The prototype binary:
 

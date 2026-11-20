@@ -8,7 +8,7 @@ tasks:
       - mise install
 
   build:
-    desc: Build the library and the prototype
+    desc: Build every target (RouterCore, RouterCoreAudio, AudioRouterApp, audio-router-proto)
     cmds:
       - swift build
 
@@ -28,6 +28,18 @@ tasks:
       - |
         addlicense -check -c "Simon Ostendorf" -y 2026 -l apache -s=only \
           $(find . -name "*.swift" -not -path "./.build/*" -not -path "./.claude/worktrees/*")
+
+  lint:core-imports:
+    desc: RouterCore imports no Core Audio, audio or UI framework (CoreImportTests checks the same)
+    cmds:
+      - |
+        attributes='^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*((public|package|internal|fileprivate|private)[[:space:]]+)?'
+        kind='((struct|class|enum|protocol|typealias|func|let|var)[[:space:]]+)?'
+        modules='(CoreAudio|AudioToolbox|AVFoundation|AppKit)([.[:space:]]|$)'
+        if grep -rnE "${attributes}import[[:space:]]+${kind}${modules}" Sources/RouterCore; then
+          echo "RouterCore must not import CoreAudio, AudioToolbox, AVFoundation or AppKit" >&2
+          exit 1
+        fi
 
   lint:markdown:
     desc: Markdown lint
@@ -49,6 +61,7 @@ tasks:
     cmds:
       - task: lint:fmt
       - task: lint:license
+      - task: lint:core-imports
       - task: lint:markdown
       - task: lint:yaml
       - task: lint:actions

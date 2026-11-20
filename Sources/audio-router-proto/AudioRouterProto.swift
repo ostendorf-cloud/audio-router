@@ -4,6 +4,7 @@
 import Dispatch
 import Foundation
 import RouterCore
+import RouterCoreAudio
 
 /// True while `session.start()` runs. Set and cleared by the main thread, read by signal handlers.
 private final class StartingFlag: @unchecked Sendable {
