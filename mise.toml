@@ -4,7 +4,7 @@
 [tools]
 task = "3"
 actionlint = "1"
-markdownlint-cli2 = "0.24.1"
+markdownlint-cli2 = "0.24.2"
 yamllint = "1"
 # addlicense has no short name in the mise registry, so it needs the explicit aqua backend prefix.
 "aqua:google/addlicense" = "1.2.0"
