@@ -8,8 +8,8 @@ The global baseline already applies here and is not repeated below.
 ## Layout
 
 - `Sources/RouterCore` is the pure logic.
-  It imports no CoreAudio, AudioToolbox, AVFoundation or AppKit.
-  `CoreImportTests` and `task lint:core-imports` enforce that.
+  It imports only `Foundation` and `Darwin`. Extend that allow list only with a reason.
+  `CoreImportTests` and `task lint:core-imports` enforce it.
   - `Protocols.swift` defines `AudioDeviceProviding`, `ProcessProviding` and `AudioRoutingBackend`.
   - `BundleGrouping`, `RoutePlanner`, `ArgumentParser`, `ChannelMapper`, `RouteSession` and `Formatting` are the logic.
     Unit tests cover all of them with fakes.
@@ -19,7 +19,8 @@ The global baseline already applies here and is not repeated below.
   - `ChannelMapper` is split. Its pure parts stay in `RouterCore`.
     `render`, `markActive` and `measure` read `AudioBufferList`.
     So they are an extension in `ChannelMapperRealTime.swift`, next to `MeterBlock`.
-  - Symbols both libraries need and no app should see are `package`, not `public`.
+  - Symbols both libraries need are `package`, not `public`.
+    `package` keeps them out of the public API. Every target of this package still sees them.
 - `Sources/AudioRouterApp` is the SwiftUI menu bar app. For now a menu bar icon with a Quit item.
 - `Sources/audio-router-proto` is the command line diagnostic tool, not part of a release.
   It wires signals and the real backend, nothing else.

@@ -20,7 +20,7 @@ let package = Package(
         .executable(name: "audio-router-proto", targets: ["audio-router-proto"]),
     ],
     targets: [
-        // Pure logic. No Core Audio, audio or UI framework: CoreImportTests checks the imports.
+        // Pure logic. Imports only Foundation and Darwin: CoreImportTests checks the imports.
         .target(name: "RouterCore"),
         // The real Core Audio implementation of the RouterCore protocols and the IO proc.
         .target(name: "RouterCoreAudio", dependencies: ["RouterCore"]),

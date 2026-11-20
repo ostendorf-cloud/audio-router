@@ -30,16 +30,35 @@ tasks:
           $(find . -name "*.swift" -not -path "./.build/*" -not -path "./.claude/worktrees/*")
 
   lint:core-imports:
-    desc: RouterCore imports no Core Audio, audio or UI framework (CoreImportTests checks the same)
+    desc: RouterCore imports only Foundation and Darwin (CoreImportTests checks the same)
+    # A simple line check. It drops `//` comments and splits on `;`. It does not know block
+    # comments or string literals, so an import spelled inside them is reported too. That fails
+    # closed: the Swift test CoreImportTests is the exact check.
     cmds:
       - |
-        attributes='^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*((public|package|internal|fileprivate|private)[[:space:]]+)?'
-        kind='((struct|class|enum|protocol|typealias|func|let|var)[[:space:]]+)?'
-        modules='(CoreAudio|AudioToolbox|AVFoundation|AppKit)([.[:space:]]|$)'
-        if grep -rnE "${attributes}import[[:space:]]+${kind}${modules}" Sources/RouterCore; then
-          echo "RouterCore must not import CoreAudio, AudioToolbox, AVFoundation or AppKit" >&2
-          exit 1
-        fi
+        test -d Sources/RouterCore || { echo "Sources/RouterCore is missing" >&2; exit 1; }
+        find Sources/RouterCore -name '*.swift' -print | grep -q . || { echo "no Swift file in Sources/RouterCore" >&2; exit 1; }
+        find Sources/RouterCore -name '*.swift' -exec awk '
+          BEGIN { allowed["Foundation"]; allowed["Darwin"]; bad = 0 }
+          {
+            line = $0
+            sub(/\/\/.*/, "", line)
+            count = split(line, parts, ";")
+            for (i = 1; i <= count; i++) {
+              n = split(parts[i], w, /[[:space:]]+/)
+              k = 1
+              while (k <= n && (w[k] == "" || w[k] ~ /^@/)) k++
+              if (w[k] ~ /^(public|package|internal|fileprivate|private|open)$/) k++
+              if (w[k] != "import") continue
+              k++
+              if (w[k] ~ /^(struct|class|enum|protocol|typealias|func|let|var)$/ && k < n) k++
+              module = w[k]
+              sub(/\..*/, "", module)
+              if (!(module in allowed)) { print FILENAME ":" FNR ": import " module; bad = 1 }
+            }
+          }
+          END { exit bad }
+        ' {} + || { echo "RouterCore may import only Foundation and Darwin" >&2; exit 1; }
 
   lint:markdown:
     desc: Markdown lint
