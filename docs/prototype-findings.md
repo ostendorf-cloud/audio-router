@@ -203,8 +203,9 @@ So the loss happens before the IO proc, and it is the same for two different app
 
 ### Measured: the stereo mixdown tap loses 24.1 dB
 
-Measured by the owner on macOS 27 with the X32 over USB (uid
-`AppleUSBAudioEngine:BEHRINGER:X-USB:21B4A92B:1,2`, 32 channels, 48 kHz, default output of macOS).
+Measured by the owner on macOS 27 with the X32 over USB (uid `<device-uid>`, 32 channels, 48 kHz,
+default output of macOS). The uid of a USB audio device has the form
+`AppleUSBAudioEngine:<vendor>:<product>:<serial>:<ids>`.
 QuickTime Player played a 1 kHz sine at -6 dBFS (`sine-1khz-minus6dbfs.wav`, not stored in this
 repository). `route --meter` printed `tap peak` -30.1 dBFS and `tap rms` -33.1 dBFS. That is
 -24.1 dB, a division by 16: 32 channels as 16 pairs. The copy to the output is unity (`tap` equals
