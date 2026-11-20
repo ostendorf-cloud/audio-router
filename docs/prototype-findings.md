@@ -154,16 +154,30 @@ Test on the oldest macOS you can reach.
 
 ## 7. Real time path
 
-The IO proc must not allocate, lock or log. The code is `ChannelMapper.render`. Repeat the
-disassembly check on a release build:
+The IO proc must not allocate, lock or log. The code is `routerIOProc` and the
+`ChannelMapper` functions it calls: `render`, `markActive` and `measure`. Repeat the
+disassembly check on a release build. The patterns match the symbols before and after the
+package split. The check fails when a pattern matches no function, so it cannot pass silently.
 
 ```sh
-otool -tV .build/release/audio-router-proto \
-  | awk '/ChannelMapperO6render.*:$/{p=1;print;next} p&&/^[_$].*:$/{exit} p' \
-  | grep -E "\bbl\b"
+(
+  bin=.build/release/audio-router-proto
+  for fn in '12routerIOProc' 'ChannelMapperO.*6render6routes' \
+    'ChannelMapperO.*10markActive5input' 'ChannelMapperO.*7measure6routes'; do
+    body=$(otool -tV "$bin" | awk -v fn="$fn" '/^[_$].*:$/{p = ($0 ~ fn)} p')
+    lines=$(printf '%s\n' "$body" | grep -c .)
+    echo "$fn: $lines lines"
+    [ "$lines" -gt 0 ] || { echo "no function matches $fn" >&2; exit 1; }
+    printf '%s\n' "$body" | grep -E "\bbl\b"
+  done
+  exit 0
+)
 ```
 
-- Calls found other than trap calls (expected: none):
+`routerIOProc` may call the three `ChannelMapper` functions, and `measure` may call
+`LevelAccumulator.add`. A release build can inline them instead.
+
+- Calls found other than trap calls and these (expected: none):
 - Dropouts at the smallest buffer size the device offers:
 - Measured CPU load of the process while routing:
 

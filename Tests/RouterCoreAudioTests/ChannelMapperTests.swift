@@ -5,6 +5,7 @@ import CoreAudio
 import Testing
 
 @testable import RouterCore
+@testable import RouterCoreAudio
 
 private let canary: Float = 55
 

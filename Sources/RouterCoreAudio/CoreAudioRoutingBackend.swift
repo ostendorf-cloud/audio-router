@@ -3,6 +3,7 @@
 
 import CoreAudio
 import Foundation
+import RouterCore
 
 /// What the IO proc reads. Plain data behind one raw pointer, so the audio thread touches no
 /// reference counted object. Allocated before the device starts, freed after it stopped.

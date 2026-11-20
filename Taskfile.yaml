@@ -8,7 +8,7 @@ tasks:
       - mise install
 
   build:
-    desc: Build the library and the prototype
+    desc: Build every target (RouterCore, RouterCoreAudio, AudioRouterApp, audio-router-proto)
     cmds:
       - swift build
 
@@ -28,6 +28,37 @@ tasks:
       - |
         addlicense -check -c "Simon Ostendorf" -y 2026 -l apache -s=only \
           $(find . -name "*.swift" -not -path "./.build/*" -not -path "./.claude/worktrees/*")
+
+  lint:core-imports:
+    desc: RouterCore imports only Foundation and Darwin (CoreImportTests checks the same)
+    # A simple line check. It drops `//` comments and splits on `;`. It does not know block
+    # comments or string literals, so an import spelled inside them is reported too. That fails
+    # closed: the Swift test CoreImportTests is the exact check.
+    cmds:
+      - |
+        test -d Sources/RouterCore || { echo "Sources/RouterCore is missing" >&2; exit 1; }
+        find Sources/RouterCore -name '*.swift' -print | grep -q . || { echo "no Swift file in Sources/RouterCore" >&2; exit 1; }
+        find Sources/RouterCore -name '*.swift' -exec awk '
+          BEGIN { allowed["Foundation"]; allowed["Darwin"]; bad = 0 }
+          {
+            line = $0
+            sub(/\/\/.*/, "", line)
+            count = split(line, parts, ";")
+            for (i = 1; i <= count; i++) {
+              n = split(parts[i], w, /[[:space:]]+/)
+              k = 1
+              while (k <= n && (w[k] == "" || w[k] ~ /^@/)) k++
+              if (w[k] ~ /^(public|package|internal|fileprivate|private|open)$/) k++
+              if (w[k] != "import") continue
+              k++
+              if (w[k] ~ /^(struct|class|enum|protocol|typealias|func|let|var)$/ && k < n) k++
+              module = w[k]
+              sub(/\..*/, "", module)
+              if (!(module in allowed)) { print FILENAME ":" FNR ": import " module; bad = 1 }
+            }
+          }
+          END { exit bad }
+        ' {} + || { echo "RouterCore may import only Foundation and Darwin" >&2; exit 1; }
 
   lint:markdown:
     desc: Markdown lint
@@ -49,6 +80,7 @@ tasks:
     cmds:
       - task: lint:fmt
       - task: lint:license
+      - task: lint:core-imports
       - task: lint:markdown
       - task: lint:yaml
       - task: lint:actions
