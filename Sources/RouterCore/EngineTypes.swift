@@ -43,11 +43,12 @@ public enum RouteFailure: Equatable, Sendable {
     /// seconds. `attempt` counts the failed starts since the last success, from 1.
     case startFailed(message: String, attempt: Int, retryIn: TimeInterval)
     /// A start failed with an error of the permanent class. No retry until `retryNow`, a changed
-    /// route, or global off and on.
+    /// route, global off and on, or a new run of the engine.
     case refused(message: String)
     /// A transient error came back `attempts` times in a row. No retry until `retryNow`, a changed
-    /// route, or global off and on. A denied capture permission that fails with an OSStatus ends
-    /// here, see `StartErrorClass`.
+    /// route, global off and on, a new run, the destination device coming back after it was gone, or
+    /// the app starting again after it quit. A denied capture permission that fails with an OSStatus
+    /// ends here, see `StartErrorClass`.
     case retriesExhausted(message: String, attempts: Int)
 }
 

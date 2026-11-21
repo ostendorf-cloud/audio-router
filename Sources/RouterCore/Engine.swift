@@ -27,10 +27,15 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 ///   an unknown device is not a failure, the route waits in `waitingForDevice`;
 /// - the destination device missing or not alive: `waitingForDevice`;
 /// - no process of the app: `waitingForApp`;
-/// - a permanent failure or exhausted retries: `failed` until `retryNow`, a changed route, or
-///   global off and on;
+/// - a permanent failure or exhausted retries: `failed`, see below;
 /// - otherwise the route starts (`starting`) and runs (`running`), or fails and retries with
-///   exponential backoff up to a cap (`failed(.startFailed)`).
+///   exponential backoff up to a cap (`failed(.startFailed)`). Other events during the backoff do not
+///   cut it short.
+///
+/// Held failures: `refused` (permanent class) stays until `retryNow`, a change of that route in
+/// `setRoutes`, global off and on, or a new run (`stopAll`, then `start`). `retriesExhausted` and the
+/// attempt count clear on the same actions, and also when the destination device comes back after it
+/// was gone and when the app starts again after it quit.
 ///
 /// Validation decisions: a route whose id appears more than once is held in `failed(.validation)`
 /// as a whole and none of its entries runs. Of two enabled routes that share a channel of a device,
@@ -50,9 +55,15 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 /// Known limits:
 /// - Several routes at once on one device (two aggregates on one device) are not measured. The
 ///   engine does not claim that it works. The hardware checklist (issue 15) covers it.
-/// - A slow start blocks the queue, so the other routes wait for it.
+/// - The single serial queue blocks every other route while one start blocks, for example while a
+///   permission prompt is open.
+/// - `setOn(false)` and `stopAll` block the caller's thread until every route is down. The app must
+///   call `stopAll` off the main thread on quit: answer `applicationShouldTerminate` with
+///   `terminateLater` and reply when `stopAll` returned.
+/// - `observe` handlers run on the engine queue and must not call `start`, `setOn` or `stopAll`.
 /// - Following the default output (the concept's rule that the default output moving away counts as
-///   device lost) is not implemented. A route follows the presence of its destination only.
+///   device lost) is not implemented yet and tracked in a follow up issue. A route follows the
+///   presence of its destination only.
 /// - The session reports no runtime error of the IO proc, so `running` only leaves through events.
 public final class RouteEngine: @unchecked Sendable {
     /// The serial owner. Internal so tests can hold it to deliver a burst of events at once.
@@ -140,10 +151,7 @@ public final class RouteEngine: @unchecked Sendable {
             run += 1
             let id = run
             let model = deviceModel
-            let devicesHandle = try model.start { [weak self, weak model] changes in
-                let devices = model?.devices ?? []
-                self?.queue.async { [weak self] in self?.devicesChanged(run: id, changes: changes, devices: devices) }
-            }
+            let devicesHandle = try model.start(deviceBatchHandler(run: id))
             let processHandle: any Cancellable
             do {
                 processHandle = try processMonitor.start { [weak self] event in
@@ -159,6 +167,8 @@ public final class RouteEngine: @unchecked Sendable {
             running = true
             devices = model.devices
             apps = [:]
+            // A new run is a fresh chance: every held failure, `refused` included, is cleared.
+            for record in records.values { record.clearFailures() }
             validate()
             scheduleReconcile()
             publish()
@@ -235,6 +245,20 @@ public final class RouteEngine: @unchecked Sendable {
         while queue.sync(execute: { reconcilePending }) {}
     }
 
+    /// The generation of the current monitor run. For tests.
+    var currentRun: Int { queue.sync { run } }
+
+    /// What the device model of run `id` calls with each batch. It runs on the model's queue and hops
+    /// onto the engine queue, where `devicesChanged` drops a batch of an older run. Internal so a test
+    /// can play a batch that was still in flight across `stopAll` and `start`.
+    func deviceBatchHandler(run id: Int) -> @Sendable ([DeviceChange]) -> Void {
+        let model = deviceModel
+        return { [weak self, weak model] changes in
+            let devices = model?.devices ?? []
+            self?.queue.async { [weak self] in self?.devicesChanged(run: id, changes: changes, devices: devices) }
+        }
+    }
+
     // MARK: - Inputs on the queue
 
     private func applyRoutes(_ newRoutes: [Route]) {
@@ -275,11 +299,19 @@ public final class RouteEngine: @unchecked Sendable {
         devices = newDevices
         // A session on a device that went away is dead even when the device is back by the time the
         // coalesced reconcile runs, so every change of the destination restarts a running route.
+        // A device that comes back (added, or alive again) gives its routes a fresh chance: the attempt
+        // count and an exhausted retry are cleared. A `refused` hold stays.
         for change in changes {
             switch change {
-            case .added(let info), .removed(let info):
+            case .added(let info):
                 markRestart { $0.destinationUID == info.uid }
-            case .sampleRateChanged(let uid, _, _), .channelsChanged(let uid, _, _), .aliveChanged(let uid, _):
+                clearTransientFailures { $0.destinationUID == info.uid }
+            case .removed(let info):
+                markRestart { $0.destinationUID == info.uid }
+            case .aliveChanged(let uid, let isAlive):
+                markRestart { $0.destinationUID == uid }
+                if isAlive { clearTransientFailures { $0.destinationUID == uid } }
+            case .sampleRateChanged(let uid, _, _), .channelsChanged(let uid, _, _):
                 markRestart { $0.destinationUID == uid }
             case .defaultOutputChanged:
                 break
@@ -295,6 +327,8 @@ public final class RouteEngine: @unchecked Sendable {
         switch event {
         case .appStarted(let group):
             apps[group.bundleID] = group
+            // The app started again: a fresh chance, like a device that is back. `refused` stays.
+            clearTransientFailures { $0.appBundleID == group.bundleID }
         case .helperStarted(let bundleID, let process):
             let known = apps[bundleID]?.processes ?? []
             apps[bundleID] = AppGroup(bundleID: bundleID, processes: known + [process])
@@ -312,6 +346,12 @@ public final class RouteEngine: @unchecked Sendable {
     }
 
     // MARK: - Reconcile
+
+    private func clearTransientFailures(where matches: (Route) -> Bool) {
+        for record in records.values where matches(record.route) {
+            record.clearTransientFailures()
+        }
+    }
 
     private func markRestart(where matches: (Route) -> Bool) {
         for record in records.values where record.session != nil && matches(record.route) {
@@ -535,6 +575,9 @@ public final class RouteEngine: @unchecked Sendable {
             self.id = id
         }
 
+        /// A dropped handle stops the calls like `cancel`.
+        deinit { cancel() }
+
         func cancel() { engine?.removeObserver(id) }
     }
 
@@ -567,9 +610,16 @@ public final class RouteEngine: @unchecked Sendable {
             rateWarnings + (silence.map { [.noSignal($0)] } ?? []) + (tapWarning.map { [.tapCheck($0)] } ?? [])
         }
 
+        /// The user acted: `retryNow`, a changed route, global on, or a new run.
         func clearFailures() {
             attempts = 0
             held = nil
+        }
+
+        /// The device or the app came back. A `refused` hold stays, it needs the user.
+        func clearTransientFailures() {
+            attempts = 0
+            if case .retriesExhausted = held { held = nil }
         }
 
         func cancelRetry() {

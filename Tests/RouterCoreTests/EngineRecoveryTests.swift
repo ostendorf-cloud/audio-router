@@ -146,16 +146,20 @@ private func entered(_ gate: Gate) -> Bool {
         rig.clock.ignoreCancel(true)
         rig.maker.fail("a", with: [transient(), transient(), transient()])
         try rig.run([a])
-        // First backoff: due at 1 s. The app quit leaves it, the app start begins a second one.
+        // First backoff: due at 1 s. Half a second later the app quit leaves it and the app start
+        // begins a second one (the attempt count starts over), due at 1.5 s.
+        rig.clock.advance(by: 0.5)
         rig.emit(.appQuit(bundleID: EngineSamples.playerID))
         rig.emit(.appStarted(EngineSamples.player))
-        #expect(rig.state(a) == .failed(.startFailed(message: "\(transient())", attempt: 2, retryIn: 2)))
+        #expect(rig.state(a) == .failed(.startFailed(message: "\(transient())", attempt: 1, retryIn: 1)))
         // The first timer still fires at 1 s, its cancel was too late. It must not start the route.
-        rig.advance(seconds: 1)
+        rig.clock.advance(by: 0.5)
+        rig.engine.waitUntilIdle()
         #expect(rig.log.count == 2)
-        rig.advance(seconds: 1)
+        rig.clock.advance(by: 0.5)
+        rig.engine.waitUntilIdle()
         #expect(rig.log.count == 3)
-        #expect(rig.state(a) == .failed(.startFailed(message: "\(transient())", attempt: 3, retryIn: 4)))
+        #expect(rig.state(a) == .failed(.startFailed(message: "\(transient())", attempt: 2, retryIn: 2)))
     }
 
     @Test func aStartThatThrowsLeavesNoListenerInstalled() throws {
