@@ -21,6 +21,7 @@ public enum ProcessEvent: Equatable, Sendable {
 /// restarts. The tap is built over the process objects that exist at that moment, and the macOS
 /// 26 `CATapDescription.bundleIDs` API that follows an app by id is out of reach with a 14.2 floor.
 /// A consumer that wants the helper in the route has to restart the route on `helperStarted`.
+/// `RouteEngine` does that.
 ///
 /// Events come from the difference of two reads, so two cases are not what they look like:
 /// - A main process that is replaced between two reads shows as `helperStopped` plus
