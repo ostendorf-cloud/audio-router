@@ -60,7 +60,8 @@ public enum RouteValidator {
     /// and never claims a destination channel.
     ///
     /// Two enabled routes of the same device clash when they share any channel, so 3,4 and 4,5
-    /// clash and 3,4 and 5,6 do not. The model itself allows any adjacent pair.
+    /// clash and 3,4 and 5,6 do not. Every overlapping pair of routes is reported once, so a chain
+    /// 3,4 / 4,5 / 5,6 gives two errors. The model itself allows any adjacent pair.
     public static func validate(
         _ routes: [Route], devices: [OutputDevice], processes: [AudioProcess]
     ) -> [RouteValidationError] {
@@ -87,14 +88,16 @@ public enum RouteValidator {
                 continue
             }
             let first = route.destinationPair.first
-            if let other = claims.first(where: { $0.uid == route.destinationUID && abs($0.first - first) <= 1 }) {
+            // Every overlapping pair of routes is reported once, against each earlier claim. An entry
+            // with the same id is skipped: that case is already `duplicateRouteID`.
+            for other in claims
+            where other.uid == route.destinationUID && other.route != route.id && abs(other.first - first) <= 1 {
                 errors.append(
                     .duplicateDestinationPair(
                         route: route.id, first: first, other: other.route, otherFirst: other.first,
                         uid: route.destinationUID))
-            } else {
-                claims.append(Claim(uid: route.destinationUID, first: first, route: route.id))
             }
+            claims.append(Claim(uid: route.destinationUID, first: first, route: route.id))
         }
         return errors
     }

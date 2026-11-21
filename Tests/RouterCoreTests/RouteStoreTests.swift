@@ -195,6 +195,22 @@ struct RouteValidationTests {
                 == [clash(2, 3, with: 1, 4)])
     }
 
+    @Test func aChainOfOverlapsReportsEveryOverlappingPair() {
+        let routes = [
+            RouteSamples.route(1, pair: 3), RouteSamples.route(2, pair: 4), RouteSamples.route(3, pair: 5),
+        ]
+        #expect(
+            RouteValidator.validate(routes, devices: devices, processes: [])
+                == [clash(2, 4, with: 1, 3), clash(3, 5, with: 2, 4)])
+    }
+
+    @Test func oneIDTwiceWithTheSamePairReportsOnlyTheDuplicateID() {
+        let routes = [RouteSamples.route(1, pair: 3), RouteSamples.route(1, pair: 3)]
+        #expect(
+            RouteValidator.validate(routes, devices: devices, processes: [])
+                == [.duplicateRouteID(route: RouteSamples.id(1))])
+    }
+
     @Test func adjacentPairsWithoutASharedChannelDoNotClash() {
         let routes = [RouteSamples.route(1, pair: 3), RouteSamples.route(2, pair: 5)]
         #expect(RouteValidator.validate(routes, devices: devices, processes: []).isEmpty)
