@@ -7,17 +7,19 @@ import Foundation
 public struct DeviceInfo: Equatable, Sendable {
     public let uid: String
     public let name: String
-    /// Output channels of each output stream, in stream order.
+    /// Output channels of each buffer of the stream configuration, in buffer order. A buffer holds
+    /// one interleaved stream, or one channel of a non interleaved stream.
     public let outputChannelsPerStream: [Int]
-    /// Nominal sample rate in Hz, 0 when Core Audio did not answer.
-    public let nominalSampleRate: Double
+    /// Nominal sample rate in Hz, nil when Core Audio did not answer. `DeviceModel` keeps the last
+    /// known rate over a failed read, so an unknown rate is never reported as a change.
+    public let nominalSampleRate: Double?
     /// `kAudioDevicePropertyDeviceIsAlive`.
     public let isAlive: Bool
     /// True for the device that is the system default output.
     public let isDefaultOutput: Bool
 
     public init(
-        uid: String, name: String, outputChannelsPerStream: [Int], nominalSampleRate: Double, isAlive: Bool,
+        uid: String, name: String, outputChannelsPerStream: [Int], nominalSampleRate: Double?, isAlive: Bool,
         isDefaultOutput: Bool
     ) {
         self.uid = uid
@@ -47,7 +49,8 @@ public protocol DeviceMonitoring: Sendable {
 
     /// Calls `handler` on an arbitrary queue for each raw change of the device list, the default
     /// output, a nominal sample rate or the alive flag. Signals are not debounced and may repeat.
-    /// `cancel` on the result removes every listener. No signal arrives after `cancel` returned.
+    /// `cancel` on the result removes every listener. A signal already in flight may still arrive
+    /// after `cancel` returned. `DeviceModel` ignores it through its generation check.
     func observe(_ handler: @escaping @Sendable (DeviceSignal) -> Void) throws -> any Cancellable
 }
 
@@ -80,9 +83,8 @@ public enum DeviceChange: Equatable, Sendable {
         }
         for uid in newByUID.keys.sorted() {
             guard let before = oldByUID[uid], let after = newByUID[uid] else { continue }
-            if before.nominalSampleRate != after.nominalSampleRate {
-                changes.append(
-                    .sampleRateChanged(uid: uid, from: before.nominalSampleRate, to: after.nominalSampleRate))
+            if let from = before.nominalSampleRate, let to = after.nominalSampleRate, from != to {
+                changes.append(.sampleRateChanged(uid: uid, from: from, to: to))
             }
             if before.isAlive != after.isAlive {
                 changes.append(.aliveChanged(uid: uid, isAlive: after.isAlive))

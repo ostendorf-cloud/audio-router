@@ -14,6 +14,7 @@ final class FakeDeviceMonitor: DeviceMonitoring, @unchecked Sendable {
     private var current: [DeviceInfo]
     private var handler: (@Sendable (DeviceSignal) -> Void)?
     private var failing = false
+    private var snapshotHook: (@Sendable () -> Void)?
     private(set) var observeCalls = 0
     private(set) var cancelCalls = 0
 
@@ -28,11 +29,17 @@ final class FakeDeviceMonitor: DeviceMonitoring, @unchecked Sendable {
     /// Plays a signal like a Core Audio listener would. Nothing happens once the observer is cancelled.
     func emit(_ signal: DeviceSignal) { lock.withLock { handler }?(signal) }
 
+    /// Runs inside each `snapshot()` after the list was read, outside the lock. The probe for a
+    /// change that lands while the baseline is read.
+    func onSnapshot(_ hook: (@Sendable () -> Void)?) { lock.withLock { snapshotHook = hook } }
+
     func snapshot() throws -> [DeviceInfo] {
-        try lock.withLock {
+        let (result, hook): ([DeviceInfo], (@Sendable () -> Void)?) = try lock.withLock {
             if failing { throw SnapshotFailure() }
-            return current
+            return (current, snapshotHook)
         }
+        hook?()
+        return result
     }
 
     func observe(_ handler: @escaping @Sendable (DeviceSignal) -> Void) throws -> any Cancellable {
@@ -67,6 +74,8 @@ final class FakeDebounceClock: DebounceClock, @unchecked Sendable {
     private var nextID = 0
     private var jobs: [Job] = []
     private(set) var requestedDelays: [TimeInterval] = []
+    /// When true, `cancel` does nothing, like a timer that already started to run.
+    var ignoresCancel = false
 
     var pendingCount: Int { lock.withLock { jobs.count } }
 
@@ -101,7 +110,25 @@ final class FakeDebounceClock: DebounceClock, @unchecked Sendable {
     private struct Cancel: Cancellable {
         let clock: FakeDebounceClock
         let id: Int
-        func cancel() { clock.lock.withLock { clock.jobs.removeAll { $0.id == id } } }
+        func cancel() {
+            clock.lock.withLock {
+                guard !clock.ignoresCancel else { return }
+                clock.jobs.removeAll { $0.id == id }
+            }
+        }
+    }
+}
+
+/// True on the first call only.
+final class Once: @unchecked Sendable {
+    private let lock = NSLock()
+    private var used = false
+
+    func first() -> Bool {
+        lock.withLock {
+            defer { used = true }
+            return !used
+        }
     }
 }
 
@@ -115,7 +142,7 @@ final class BatchRecorder: @unchecked Sendable {
 }
 
 private func device(
-    _ uid: String, channels: [Int] = [2], rate: Double = 48000, alive: Bool = true, isDefault: Bool = false
+    _ uid: String, channels: [Int] = [2], rate: Double? = 48000, alive: Bool = true, isDefault: Bool = false
 ) -> DeviceInfo {
     DeviceInfo(
         uid: uid, name: "Name of \(uid)", outputChannelsPerStream: channels, nominalSampleRate: rate,
@@ -332,12 +359,98 @@ struct DeviceModelTests {
         #expect(rig.recorder.batches.count == 1)
     }
 
-    @Test func startingAgainWhileRunningRemovesTheFirstListener() throws {
+    @Test func startingAgainWhileRunningThrowsAndKeepsTheFirstConsumer() throws {
         let rig = Rig([device("uid-a")])
+        let second = BatchRecorder()
         _ = try rig.start()
+        #expect(throws: DeviceModelError.alreadyRunning) { _ = try rig.model.start { second.record($0) } }
+        #expect(rig.monitor.observeCalls == 1)
+        #expect(rig.monitor.cancelCalls == 0)
+        rig.monitor.set([])
+        rig.monitor.emit(.deviceList)
+        rig.clock.advance(by: 1.5)
+        #expect(rig.recorder.batches.count == 1)
+        #expect(second.batches.isEmpty)
+    }
+
+    @Test func aChangeWhileTheBaselineIsReadLeadsToOneBatch() throws {
+        let rig = Rig([device("uid-a")])
+        let monitor = rig.monitor
+        monitor.onSnapshot {
+            monitor.set([device("uid-a"), device("uid-b")])
+            monitor.emit(.deviceList)
+        }
         _ = try rig.start()
-        #expect(rig.monitor.observeCalls == 2)
-        #expect(rig.monitor.cancelCalls == 1)
+        #expect(rig.clock.pendingCount == 1)
+        rig.clock.advance(by: 1.5)
+        #expect(rig.recorder.batches == [[.added(device("uid-b"))]])
+        #expect(rig.model.devices.map(\.uid) == ["uid-a", "uid-b"])
+    }
+
+    @Test func droppingTheModelRemovesTheListenerAndTheTimer() throws {
+        let monitor = FakeDeviceMonitor([device("uid-a")])
+        let clock = FakeDebounceClock()
+        var model: DeviceModel? = DeviceModel(monitor: monitor, clock: clock)
+        let handle = try model!.start { _ in }
+        monitor.set([])
+        monitor.emit(.deviceList)
+        #expect(clock.pendingCount == 1)
+        model = nil
+        #expect(!monitor.isObserved)
+        #expect(monitor.cancelCalls == 1)
+        #expect(clock.pendingCount == 0)
+        withExtendedLifetime(handle) {}
+    }
+
+    @Test func anUnreadableSampleRateKeepsTheLastKnownRate() throws {
+        let rig = Rig([device("uid-a", rate: 48000)])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a", rate: nil)])
+        rig.monitor.emit(.sampleRate)
+        rig.clock.advance(by: 1.5)
+        #expect(rig.recorder.batches.isEmpty)
+        #expect(rig.model.devices.first?.nominalSampleRate == 48000)
+        rig.monitor.set([device("uid-a", rate: 44100)])
+        rig.monitor.emit(.sampleRate)
+        rig.clock.advance(by: 1.5)
+        #expect(rig.recorder.batches == [[.sampleRateChanged(uid: "uid-a", from: 48000, to: 44100)]])
+    }
+
+    @Test func aRateThatBecomesKnownIsNoChange() {
+        #expect(DeviceChange.diff(old: [device("uid-a", rate: nil)], new: [device("uid-a", rate: 48000)]).isEmpty)
+    }
+
+    @Test func aStaleTimerAfterARestartDoesNothingAndKeepsTheNewTimer() throws {
+        let rig = Rig([device("uid-a")])
+        rig.clock.ignoresCancel = true
+        let first = try rig.start()
+        rig.monitor.emit(.deviceList)
+        first.cancel()
+        _ = try rig.start()
+        rig.clock.advance(by: 1.0)
+        rig.monitor.set([])
+        rig.monitor.emit(.deviceList)
+        #expect(rig.clock.pendingCount == 2)
+        rig.clock.advance(by: 0.6)
+        #expect(rig.recorder.batches.isEmpty)
+        #expect(rig.clock.pendingCount == 1)
+        rig.clock.advance(by: 1.0)
+        #expect(rig.recorder.batches.count == 1)
+    }
+
+    @Test func aTimerStartedWhileTheSnapshotIsReadSurvivesTheSettle() throws {
+        let rig = Rig([device("uid-a")])
+        let handle = try rig.start()
+        let monitor = rig.monitor
+        let once = Once()
+        monitor.set([device("uid-a"), device("uid-b")])
+        monitor.onSnapshot { if once.first() { monitor.emit(.alive) } }
+        monitor.emit(.deviceList)
+        rig.clock.advance(by: 1.5)
+        #expect(rig.recorder.batches == [[.added(device("uid-b"))]])
+        #expect(rig.clock.pendingCount == 1)
+        handle.cancel()
+        #expect(rig.clock.pendingCount == 0)
     }
 
     @Test func aFailedBaselineReadRemovesTheListenerAndThrows() {

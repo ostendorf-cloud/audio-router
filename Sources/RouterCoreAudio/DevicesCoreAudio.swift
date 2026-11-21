@@ -26,7 +26,7 @@ public struct CoreAudioDeviceMonitor: DeviceMonitoring {
                 (try? CoreAudioProperty.value(id, kAudioDevicePropertyDeviceIsAlive, initial: UInt32(0))) ?? 0
             return DeviceInfo(
                 uid: uid, name: name, outputChannelsPerStream: channels,
-                nominalSampleRate: CoreAudioProperty.nominalSampleRate(id) ?? 0,
+                nominalSampleRate: CoreAudioProperty.nominalSampleRate(id),
                 isAlive: alive != 0, isDefaultOutput: id == defaultID)
         }
     }
@@ -61,13 +61,14 @@ private final class DeviceListeners: Cancellable, @unchecked Sendable {
 
     func install() throws {
         do {
-            try lock.withLock {
+            let stale: [Registration] = try lock.withLock {
                 try add(CoreAudioProperty.system, kAudioHardwarePropertyDevices, signal: nil, to: &system)
                 try add(
                     CoreAudioProperty.system, kAudioHardwarePropertyDefaultOutputDevice, signal: .defaultOutput,
                     to: &system)
-                try syncDevices()
+                return try syncDevices()
             }
+            for registration in stale { remove(registration) }
         } catch {
             cancel()
             throw error
@@ -97,7 +98,8 @@ private final class DeviceListeners: Cancellable, @unchecked Sendable {
             if let signal {
                 self.deliver(signal)
             } else {
-                self.lock.withLock { try? self.syncDevices() }
+                let stale = self.lock.withLock { (try? self.syncDevices()) ?? [] }
+                for registration in stale { self.remove(registration) }
                 self.deliver(.deviceList)
             }
         }
@@ -113,13 +115,16 @@ private final class DeviceListeners: Cancellable, @unchecked Sendable {
         handler(signal)
     }
 
-    /// Needs the lock held by the caller.
-    private func syncDevices() throws {
-        guard !cancelled else { return }
+    /// Adds blocks for new devices and returns the blocks of gone devices. The caller holds the lock
+    /// and removes the returned blocks after it released the lock, so a HAL that waits for blocks in
+    /// flight cannot deadlock against a block that waits for the lock.
+    private func syncDevices() throws -> [Registration] {
+        guard !cancelled else { return [] }
         let ids: [AudioObjectID] = try CoreAudioProperty.array(
             CoreAudioProperty.system, kAudioHardwarePropertyDevices, initial: 0)
+        var stale: [Registration] = []
         for gone in perDevice.keys where !ids.contains(gone) {
-            for registration in perDevice.removeValue(forKey: gone) ?? [] { remove(registration) }
+            stale += perDevice.removeValue(forKey: gone) ?? []
         }
         for id in ids where perDevice[id] == nil {
             var registrations: [Registration] = []
@@ -128,11 +133,12 @@ private final class DeviceListeners: Cancellable, @unchecked Sendable {
                 try add(id, kAudioDevicePropertyDeviceIsAlive, signal: .alive, to: &registrations)
             } catch {
                 // A device that vanished while the list was read has no properties to listen to.
-                for registration in registrations { remove(registration) }
+                stale += registrations
                 continue
             }
             perDevice[id] = registrations
         }
+        return stale
     }
 
     private func remove(_ registration: Registration) {
