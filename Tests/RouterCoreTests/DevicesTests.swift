@@ -61,6 +61,31 @@ final class FakeDeviceMonitor: DeviceMonitoring, @unchecked Sendable {
     }
 }
 
+/// A monitor that keeps every handler it was given, so a test can play a signal of a cancelled
+/// observer, like one that was already in flight when `cancel` ran.
+final class KeepingDeviceMonitor: DeviceMonitoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: [DeviceInfo]
+    private var kept: [@Sendable (DeviceSignal) -> Void] = []
+
+    init(_ devices: [DeviceInfo]) { current = devices }
+
+    func set(_ devices: [DeviceInfo]) { lock.withLock { current = devices } }
+
+    /// Plays a signal through the handler of the n-th `observe` call, cancelled or not.
+    func emit(_ signal: DeviceSignal, throughObserver index: Int) {
+        let handler = lock.withLock { kept[index] }
+        handler(signal)
+    }
+
+    func snapshot() throws -> [DeviceInfo] { lock.withLock { current } }
+
+    func observe(_ handler: @escaping @Sendable (DeviceSignal) -> Void) throws -> any Cancellable {
+        lock.withLock { kept.append(handler) }
+        return FakeCancellable()
+    }
+}
+
 /// A clock that only moves when the test says so.
 final class FakeDebounceClock: DebounceClock, @unchecked Sendable {
     private struct Job {
@@ -436,6 +461,24 @@ struct DeviceModelTests {
         #expect(rig.clock.pendingCount == 1)
         rig.clock.advance(by: 1.0)
         #expect(rig.recorder.batches.count == 1)
+    }
+
+    @Test func aLateSignalOfACancelledRunDoesNotEatTheNewTimer() throws {
+        let monitor = KeepingDeviceMonitor([device("uid-a")])
+        let clock = FakeDebounceClock()
+        let recorder = BatchRecorder()
+        let model = DeviceModel(monitor: monitor, clock: clock)
+        try model.start { _ in }.cancel()
+        let handle = try model.start { recorder.record($0) }
+        monitor.set([])
+        monitor.emit(.deviceList, throughObserver: 1)
+        clock.advance(by: 1.0)
+        // The old observer was cancelled, but a signal of it was still in flight.
+        monitor.emit(.deviceList, throughObserver: 0)
+        #expect(clock.pendingCount == 1)
+        clock.advance(by: 0.6)
+        #expect(recorder.batches == [[.removed(device("uid-a"))]])
+        handle.cancel()
     }
 
     @Test func aTimerStartedWhileTheSnapshotIsReadSurvivesTheSettle() throws {

@@ -43,7 +43,9 @@ public enum DeviceModelError: Error, Equatable, Sendable {
 ///
 /// One model has exactly one consumer: `start` throws `DeviceModelError.alreadyRunning` while it
 /// runs. Several consumers, such as the engine and the UI, need a fan out layer above the model.
-/// A model that is dropped without `cancel` removes its listener when it goes away.
+/// A model that is dropped without `cancel` removes its listener when it goes away. The handle
+/// from `start` holds the model weakly, so `let h = try DeviceModel(...).start {}` without keeping
+/// the model stops at once and without an error: keep a reference to the model.
 public final class DeviceModel: @unchecked Sendable {
     /// The quiet period the app uses, within the 1 to 2 s of the concept.
     public static let defaultDebounce: TimeInterval = 1.5
