@@ -1,0 +1,109 @@
+name: app-release
+
+# Builds the app bundle and attaches an arm64 zip and its SHA-256 file to a GitHub release.
+#
+# Signing: ad hoc only. There is no Developer ID Application certificate and no notarisation.
+# This is a known blocker, not a choice. Notarisation needs a Developer ID Application certificate
+# from the paid Apple Developer Program, plus an App Store Connect API key or an app specific
+# password as secrets set through the infrastructure repository. Then the job would run
+# `notarytool submit --wait` and `stapler staple`. Until then each release triggers a new
+# permission prompt and Gatekeeper blocks the first open. The README says so.
+# No secret is used here.
+#
+# The build is `task bundle`, `task bundle:verify` and `task bundle:zip` (scripts/bundle.sh and Taskfile.yaml).
+# A runner has no usable audio device, so the job builds and verifies only.
+#
+# Uploading to an already published release fails when GitHub's immutable releases setting is on
+# for this repository. The owner confirms that setting, see the pull request that added this file.
+#
+# A dry run: start this workflow by hand (workflow_dispatch) on a branch. It builds and
+# uploads the two files as a workflow artifact and does not touch any release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # Every event value reaches a script through env, never inline in a `run:`.
+      # Empty on a dry run, where the version comes from git describe.
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          # A dry run needs the tags for git describe.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # This job holds a write token. It installs only task, not all of mise.toml.
+      # The Swift toolchain and the macOS tools come from the runner image.
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a  # v5.2.10
+        with:
+          install_args: task
+
+      - name: Validate the release tag
+        if: env.RELEASE_TAG != ''
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "unexpected tag: ${RELEASE_TAG}" >&2; exit 1; }
+
+      # VERSION is set on a release only. On a dry run the branch name would fail the version check.
+      - name: Build, verify and zip the app bundle
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_TAG}" ]; then
+            VERSION="${RELEASE_TAG#v}"
+            export VERSION
+          fi
+          task bundle
+          task bundle:verify
+          task bundle:zip
+
+      - name: Write the checksum
+        id: asset
+        run: |
+          set -euo pipefail
+          zips=(dist/audio-router-*-arm64.zip)
+          if [ "${#zips[@]}" -ne 1 ] || [ ! -f "${zips[0]}" ]; then
+            echo "expected exactly one zip in dist/, found: ${zips[*]}" >&2
+            exit 1
+          fi
+          zip="$(basename "${zips[0]}")"
+          if [ -n "${RELEASE_TAG}" ] && [ "${zip}" != "audio-router-${RELEASE_TAG#v}-arm64.zip" ]; then
+            echo "zip name ${zip} does not match tag ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          # A relative file name, so that shasum -c works in the folder with both files.
+          (cd dist && shasum -a 256 "${zip}" > "${zip}.sha256")
+          cat "dist/${zip}.sha256"
+          echo "zip=${zip}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload to the release
+        if: env.RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP: ${{ steps.asset.outputs.zip }}
+        run: gh release upload "${RELEASE_TAG}" "dist/${ZIP}" "dist/${ZIP}.sha256" --clobber --repo "${GITHUB_REPOSITORY}"
+
+      - name: Upload as a workflow artifact on a dry run
+        if: env.RELEASE_TAG == ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: audio-router-arm64
+          path: |
+            dist/${{ steps.asset.outputs.zip }}
+            dist/${{ steps.asset.outputs.zip }}.sha256
+          if-no-files-found: error

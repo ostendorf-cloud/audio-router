@@ -28,6 +28,22 @@ swift build -c release
   tap shows no signal on any channel. With signal on other tap channels it prints the tap warning
   alone.
 
+## Releases
+
+- Each release carries `audio-router-<version>-arm64.zip` and a SHA-256 file.
+- The app is signed ad hoc and not notarised.
+  Notarisation needs a Developer ID Application certificate from the paid Apple Developer Program.
+  That certificate does not exist yet.
+- Gatekeeper blocks the first open, and each new release asks for the system audio capture permission again.
+- To open the app past Gatekeeper, use one of these two ways.
+  - System Settings, Privacy & Security, then Open Anyway.
+  - In a terminal: `xattr -dr com.apple.quarantine <path to the app>`.
+- To verify the download, put the zip and the `.sha256` file in one folder and run:
+
+  ```sh
+  shasum -a 256 -c audio-router-<version>-arm64.zip.sha256
+  ```
+
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE).
