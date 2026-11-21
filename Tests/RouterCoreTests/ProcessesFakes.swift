@@ -91,6 +91,8 @@ final class FakeProcessMonitor: ProcessMonitoring, @unchecked Sendable {
 final class EventLog: @unchecked Sendable {
     private let lock = NSLock()
     private var items: [ProcessEvent] = []
+    /// Keeps a monitor handle alive, because dropping the handle stops the monitor.
+    var held: (any Cancellable)?
 
     var events: [ProcessEvent] { lock.withLock { items } }
 

@@ -18,6 +18,7 @@ private func start(_ list: FakeProcessList) throws -> (EventLog, any Cancellable
     let log = EventLog()
     let monitor = ProcessMonitor(processes: list, observer: list)
     let handle = try monitor.start { log.append($0) }
+    log.held = handle
     return (log, handle)
 }
 
@@ -124,6 +125,72 @@ struct ProcessesMonitoringTests {
         list.change(to: [player, other])
         #expect(log.events.count == 1)
         #expect(list.removals == 1)
+    }
+
+    @Test func droppingTheHandleWithoutCancelRemovesTheListener() throws {
+        let list = FakeProcessList([])
+        let log = EventLog()
+        var handle: (any Cancellable)? = try ProcessMonitor(processes: list, observer: list)
+            .start { log.append($0) }
+        #expect(list.listenerInstalled)
+        #expect(handle != nil)
+        handle = nil
+        #expect(!list.listenerInstalled)
+        #expect(list.removals == 1)
+        list.change(to: [player])
+        #expect(log.events.isEmpty)
+    }
+
+    @Test func failedFirstReadThrowsAndLeavesNoListener() {
+        let list = FakeProcessList([player])
+        list.setFailing(true)
+        let monitor = ProcessMonitor(processes: list, observer: list)
+        #expect(throws: ProcessMonitorError.self) {
+            _ = try monitor.start { _ in }
+        }
+        #expect(!list.listenerInstalled)
+        #expect(list.removals == 1)
+    }
+
+    @Test func ownProcessIsDropped() throws {
+        let mine = AudioProcess(objectID: 7, pid: 4242, bundleID: "com.example.Mine", isRunningOutput: true)
+        let list = FakeProcessList([mine])
+        let log = EventLog()
+        let monitor = ProcessMonitor(
+            processes: list, observer: list, ownPID: 4242, ownBundleID: "com.example.Mine")
+        log.held = try monitor.start { log.append($0) }
+        #expect(log.events.isEmpty)
+        // Same bundle id, other pid: dropped by the id as well.
+        list.change(to: [mine, proc(8, "com.example.Mine"), player])
+        #expect(log.events == [.appStarted(AppGroup(bundleID: "com.example.Player", processes: [player]))])
+    }
+
+    @Test func replacedMainProcessShowsAsHelperStopAndStart() throws {
+        let list = FakeProcessList([player, playerHelper])
+        let (log, _) = try start(list)
+        log.clear()
+        let replacement = proc(10, "com.example.Player")
+        list.change(to: [replacement, playerHelper])
+        #expect(
+            log.events == [
+                .helperStopped(bundleID: "com.example.Player", process: player),
+                .helperStarted(bundleID: "com.example.Player", process: replacement),
+            ])
+    }
+
+    @Test func regroupingShowsQuitOfThePseudoAppThenStartOfTheParent() throws {
+        let extra = proc(4, "com.example.Player.Extra")
+        let list = FakeProcessList([extra])
+        let (log, _) = try start(list)
+        #expect(
+            log.events == [.appStarted(AppGroup(bundleID: "com.example.Player.Extra", processes: [extra]))])
+        log.clear()
+        list.change(to: [player, extra])
+        #expect(
+            log.events == [
+                .appQuit(bundleID: "com.example.Player.Extra"),
+                .appStarted(AppGroup(bundleID: "com.example.Player", processes: [player, extra])),
+            ])
     }
 
     @Test func fakeMonitorEmitsScriptedEvents() throws {

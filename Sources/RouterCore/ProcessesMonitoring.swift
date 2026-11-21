@@ -21,10 +21,19 @@ public enum ProcessEvent: Equatable, Sendable {
 /// restarts. The tap is built over the process objects that exist at that moment, and the macOS
 /// 26 `CATapDescription.bundleIDs` API that follows an app by id is out of reach with a 14.2 floor.
 /// A consumer that wants the helper in the route has to restart the route on `helperStarted`.
+///
+/// Events come from the difference of two reads, so two cases are not what they look like:
+/// - A main process that is replaced between two reads shows as `helperStopped` plus
+///   `helperStarted`, not as quit and start. The restart on `helperStarted` covers it.
+/// - Regrouping can show a quit of a pseudo app followed by `appStarted` of the parent. An id
+///   such as `com.example.App.Extra` is its own app until `com.example.App` appears, then it
+///   becomes a member of that app. The behaviour is kept and a test pins the sequence.
 public protocol ProcessMonitoring: Sendable {
     /// Calls `handler` for every event, serialized and in order, on an arbitrary thread. Apps that
-    /// run when the monitor starts arrive as `appStarted`. After `cancel` returned no further call
-    /// begins. Keep the returned value alive as long as events are wanted.
+    /// run when the monitor starts arrive as `appStarted`. The handler is not called for the
+    /// process of the caller itself. After `cancel` returned no further call begins. Dropping the
+    /// returned value without `cancel` also stops the monitor, but `cancel` is the clear way.
+    /// Throws when the process list cannot be read at the start.
     func start(_ handler: @escaping @Sendable (ProcessEvent) -> Void) throws -> any Cancellable
 }
 
@@ -71,18 +80,50 @@ public enum ProcessDiff {
 public struct ProcessMonitor: ProcessMonitoring {
     private let processes: any ProcessProviding
     private let observer: any ProcessListObserving
+    private let ownPID: Int32
+    private let ownBundleID: String
 
-    public init(processes: any ProcessProviding, observer: any ProcessListObserving) {
+    /// `ownPID` and `ownBundleID` name the process of the caller. It is dropped from the events,
+    /// because an app that routes becomes a Core Audio client itself.
+    public init(
+        processes: any ProcessProviding, observer: any ProcessListObserving,
+        ownPID: Int32 = ProcessInfo.processInfo.processIdentifier,
+        ownBundleID: String = Bundle.main.bundleIdentifier ?? ProcessFilter.ownBundleID
+    ) {
         self.processes = processes
         self.observer = observer
+        self.ownPID = ownPID
+        self.ownBundleID = ownBundleID
     }
 
     public func start(_ handler: @escaping @Sendable (ProcessEvent) -> Void) throws -> any Cancellable {
-        let session = ProcessMonitorSession(processes: processes, handler: handler)
-        // Register first, then read once: a process that starts in between is not missed.
-        session.registration = try observer.observeProcessList { session.refresh() }
-        session.refresh()
+        let session = ProcessMonitorSession(
+            processes: processes, ownPID: ownPID, ownBundleID: ownBundleID, handler: handler)
+        // Register first, then read once: a process that starts in between is not missed. The
+        // listener holds the session weakly, so dropping the handle ends the monitor.
+        session.registration = try observer.observeProcessList { [weak session] in
+            session?.refresh()
+        }
+        do {
+            try session.read()
+        } catch {
+            session.cancel()
+            throw ProcessMonitorError.initialReadFailed("\(error)")
+        }
         return session
+    }
+}
+
+/// The monitor could not start.
+public enum ProcessMonitorError: Error, Equatable, CustomStringConvertible {
+    /// The first read of the process list failed. The text is the underlying error.
+    case initialReadFailed(String)
+
+    public var description: String {
+        switch self {
+        case .initialReadFailed(let reason):
+            return "Cannot read the audio process list: \(reason)"
+        }
     }
 }
 
@@ -90,23 +131,36 @@ public struct ProcessMonitor: ProcessMonitoring {
 /// events keep their order and `cancel` from inside the handler does not deadlock.
 private final class ProcessMonitorSession: Cancellable, @unchecked Sendable {
     private let processes: any ProcessProviding
+    private let ownPID: Int32
+    private let ownBundleID: String
     private let handler: @Sendable (ProcessEvent) -> Void
     private let lock = NSRecursiveLock()
     private var known: [AppGroup] = []
     private var cancelled = false
     var registration: (any Cancellable)?
 
-    init(processes: any ProcessProviding, handler: @escaping @Sendable (ProcessEvent) -> Void) {
+    init(
+        processes: any ProcessProviding, ownPID: Int32, ownBundleID: String,
+        handler: @escaping @Sendable (ProcessEvent) -> Void
+    ) {
         self.processes = processes
+        self.ownPID = ownPID
+        self.ownBundleID = ownBundleID
         self.handler = handler
     }
 
+    deinit { cancel() }
+
+    /// A change notice. A failed read keeps the last snapshot, the next change reads again.
     func refresh() {
+        try? read()
+    }
+
+    func read() throws {
         lock.lock()
         defer { lock.unlock() }
         guard !cancelled else { return }
-        // A failed read keeps the last snapshot. The next change reads again.
-        guard let list = try? processes.processes() else { return }
+        let list = ProcessFilter.withoutSelf(try processes.processes(), bundleID: ownBundleID, pid: ownPID)
         let groups = BundleGrouping.groups(list)
         let events = ProcessDiff.events(from: known, to: groups)
         known = groups

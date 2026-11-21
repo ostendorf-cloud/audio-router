@@ -48,7 +48,9 @@ private final class ProcessListListener: Cancellable, @unchecked Sendable {
         }
         guard wasInstalled else { return }
         var address = CoreAudioProperty.address(kAudioHardwarePropertyProcessObjectList)
-        AudioObjectRemovePropertyListenerBlock(CoreAudioProperty.system, &address, queue, block)
+        // The status is ignored on purpose. A cancel cannot fail its caller, core has no logger,
+        // and a failed removal leaves a block that only calls a weakly held monitor.
+        _ = AudioObjectRemovePropertyListenerBlock(CoreAudioProperty.system, &address, queue, block)
     }
 }
 
