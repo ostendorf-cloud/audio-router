@@ -13,6 +13,8 @@ The global baseline already applies here and is not repeated below.
   - `Protocols.swift` defines `AudioDeviceProviding`, `ProcessProviding` and `AudioRoutingBackend`.
   - `BundleGrouping`, `RoutePlanner`, `ArgumentParser`, `ChannelMapper`, `RouteSession` and `Formatting` are the logic.
     Unit tests cover all of them with fakes.
+  - `Engine*.swift` is the route engine (`RouteEngine`), see the constraints below.
+    `EngineTests`, `EngineRecoveryTests` and `EngineFakes` drive it with scripted events and an injected clock.
 - `Sources/RouterCoreAudio` is the real Core Audio implementation of the protocols.
   It needs a Mac, devices and the capture permission.
   It holds `routerIOProc` and all code that runs on the audio thread.
@@ -89,7 +91,26 @@ Nothing active prints the full permission warning only.
 - `ProcessMonitoring` (`ProcessesMonitoring.swift`) reports app start, helper start, helper stop and app quit.
   Known limit: a helper that starts after a route started is not tapped until the route restarts.
   The tap covers the process objects that existed at creation, and the macOS 26 `CATapDescription.bundleIDs`
-  API is out of reach with the 14.2 floor. The consumer restarts the route on `helperStarted`.
+  API is out of reach with the 14.2 floor. `RouteEngine` restarts the route on `helperStarted`.
+- `RouteEngine` is the one serial owner of the routes: a private serial dispatch queue, never the audio thread.
+  A queue and not an actor, because `RouteSession.start` and `stop` block on Core Audio.
+  It is the only consumer of its `DeviceModel` and its `ProcessMonitoring`.
+  The UI reads the engine's snapshot (`snapshot`, `observe`), which carries the devices and apps too.
+  Do not start a second monitor for the UI.
+  - Every callback (monitor, retry timer, poll timer) carries a generation and is dropped when it is stale.
+  - `setOn(false)` and `stopAll` return only when every route is down, in the fixed teardown order.
+  - Device recovery uses the quiet period of `DeviceModel`. The engine adds no second debounce.
+  - Silence, the tap check and a persisting sample rate mismatch are warnings on `running`, never a stop.
+  - Failed starts retry with exponential backoff up to a cap. A permanent error (`StartErrorClass`) and a
+    transient error after `maxAttempts` stop retrying until `retryNow`, a changed route, or global off and on.
+- Known limits of the engine:
+  - Several routes at once on one device (two aggregates on one device) are not measured.
+    Do not claim they work. The hardware checklist (issue 15) covers it.
+  - Whether a denied capture permission fails with an OSStatus or delivers silence is not measured
+    (`docs/prototype-findings.md` section 1). As an OSStatus it ends in `retriesExhausted`, as silence in the
+    `noSignal` warning. `EngineConfiguration.classify` can map a measured status to `permanent`.
+  - The default output moving away from a route's device does not count as device lost yet.
+  - A slow start blocks the engine queue, so the other routes wait for it.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.
 - Tests use no network, no audio hardware and no permission. New device or process code goes behind a protocol.
