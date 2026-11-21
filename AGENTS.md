@@ -83,6 +83,10 @@ Nothing active prints the full permission warning only.
   `ChannelMapper.tapBufferByStreamDiff`) names the tap buffer when it can. When it fails and the device inputs have
   the tap shape, the layout cannot prove the order and the route needs `--tap-buffer`. Do not widen the rule.
 - `SIGTSTP` is ignored on purpose, a suspended process cannot tear down.
+- `ProcessMonitoring` (`ProcessesMonitoring.swift`) reports app start, helper start, helper stop and app quit.
+  Known limit: a helper that starts after a route started is not tapped until the route restarts.
+  The tap covers the process objects that existed at creation, and the macOS 26 `CATapDescription.bundleIDs`
+  API is out of reach with the 14.2 floor. The consumer restarts the route on `helperStarted`.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.
 - Tests use no network, no audio hardware and no permission. New device or process code goes behind a protocol.
