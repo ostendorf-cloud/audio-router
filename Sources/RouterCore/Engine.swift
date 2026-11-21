@@ -62,9 +62,13 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 ///   `terminateLater` and reply when `stopAll` returned.
 /// - `observe` handlers run on the engine queue and must not call `start`, `setOn` or `stopAll`.
 /// - Following the default output (the concept's rule that the default output moving away counts as
-///   device lost) is not implemented yet and tracked in a follow up issue. A route follows the
-///   presence of its destination only.
+///   device lost) is not implemented yet, see issue 42. A route follows the presence of its
+///   destination only.
 /// - The session reports no runtime error of the IO proc, so `running` only leaves through events.
+/// - A flapping device with a failing start retries without end and never reaches
+///   `retriesExhausted`, because every replug clears the attempt count. The pace is bounded by the
+///   quiet period of the `DeviceModel` plus the first backoff delay. A possible follow up: clear the
+///   count only after the device stayed present for a while.
 public final class RouteEngine: @unchecked Sendable {
     /// The serial owner. Internal so tests can hold it to deliver a burst of events at once.
     let queue = DispatchQueue(label: "audio-router.engine")
@@ -562,8 +566,11 @@ public final class RouteEngine: @unchecked Sendable {
         for handler in handlers ?? [] { handler(next) }
     }
 
+    /// The handler is released after the lock. It may own another handle of this engine, whose
+    /// `deinit` removes that observer and takes the lock again: inside the lock that deadlocks.
     fileprivate func removeObserver(_ id: Int) {
-        lock.withLock { observers[id] = nil }
+        let removed = lock.withLock { observers.removeValue(forKey: id) }
+        withExtendedLifetime(removed) {}
     }
 
     private final class ObserverHandle: Cancellable, @unchecked Sendable {

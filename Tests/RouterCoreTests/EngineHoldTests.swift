@@ -140,11 +140,28 @@ private func otherDevice(rate: Double = 48000) -> DeviceInfo {
         #expect(rig.state(a) == .running(warnings: []))
     }
 
+    @Test func aLateDeviceTimerOfAnOlderRunChangesNothing() throws {
+        let rig = EngineRig()
+        rig.deviceClock.ignoresCancel = true
+        try rig.run([a])
+        // A raw signal of the old run starts its quiet period, then the engine runs again.
+        rig.deviceMonitor.emit(.deviceList)
+        rig.engine.stopAll()
+        try rig.engine.start()
+        rig.engine.waitUntilIdle()
+        rig.deviceMonitor.set([])
+        rig.deviceClock.advance(by: EngineRig.debounce)
+        rig.engine.waitUntilIdle()
+        #expect(rig.log == ["start a 101,102", "stop a", "start a 101,102"])
+        #expect(rig.state(a) == .running(warnings: []))
+    }
+
     @Test func aDroppedObserverHandleStopsTheCalls() throws {
         let rig = EngineRig()
         rig.setRoutes([a])
         let recorder = StateRecorder(a.id)
-        do {
+        // Dropped on the engine queue, so the first delivery queued by `observe` comes after the drop.
+        rig.engine.queue.sync {
             _ = rig.engine.observe { recorder.record($0) }
         }
         try rig.engine.start()
@@ -152,4 +169,34 @@ private func otherDevice(rate: Double = 48000) -> DeviceInfo {
         #expect(recorder.states.isEmpty)
         #expect(rig.state(a) == .running(warnings: []))
     }
+
+    @Test func cancellingAHandlerThatOwnsAnotherHandleDoesNotDeadlock() throws {
+        let rig = EngineRig()
+        let inner = StateRecorder(a.id)
+        // The outer handler is the last owner of the inner handle.
+        let outer: any Cancellable = {
+            let box = HandleBox()
+            box.handle = rig.engine.observe { inner.record($0) }
+            return rig.engine.observe { _ in withExtendedLifetime(box) {} }
+        }()
+        rig.engine.waitUntilIdle()
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            outer.cancel()
+            done.signal()
+        }
+        // A bounded wait: a regression fails here instead of hanging the suite.
+        guard done.wait(timeout: .now() + 5) == .success else {
+            Issue.record("cancel deadlocked on the observer lock")
+            return
+        }
+        rig.setRoutes([a])
+        #expect(inner.states.isEmpty)
+        #expect(rig.state(a) == .disabled)
+    }
+}
+
+/// Holds a handle so a handler closure can own it.
+private final class HandleBox: @unchecked Sendable {
+    var handle: (any Cancellable)?
 }
