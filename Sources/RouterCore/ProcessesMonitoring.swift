@@ -129,6 +129,10 @@ public enum ProcessMonitorError: Error, Equatable, CustomStringConvertible {
 
 /// One running monitor. A recursive lock serializes the refreshes and the handler calls, so
 /// events keep their order and `cancel` from inside the handler does not deadlock.
+///
+/// Dropping the last handle inside the handler does not stop the batch that is being delivered:
+/// the weak load of the listener keeps the session alive until `read` returns, and `deinit` then
+/// runs on the listener queue. Only `cancel` inside the handler stops the rest of the batch.
 private final class ProcessMonitorSession: Cancellable, @unchecked Sendable {
     private let processes: any ProcessProviding
     private let ownPID: Int32
@@ -149,6 +153,9 @@ private final class ProcessMonitorSession: Cancellable, @unchecked Sendable {
         self.handler = handler
     }
 
+    /// Ends the monitor when the last handle is dropped. See the note on the class.
+    /// If the listener fires while `start` registers and the first read then fails, the handler
+    /// may already have received events before `start` throws `initialReadFailed`.
     deinit { cancel() }
 
     /// A change notice. A failed read keeps the last snapshot, the next change reads again.
