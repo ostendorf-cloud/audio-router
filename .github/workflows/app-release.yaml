@@ -1,0 +1,79 @@
+name: app-release
+
+# Builds the app bundle and attaches an arm64 zip and its SHA-256 file to a GitHub release.
+#
+# Signing: ad hoc only. There is no Developer ID Application certificate and no notarisation.
+# This is a known blocker, not a choice. Notarisation needs a Developer ID Application certificate
+# from the paid Apple Developer Program, plus an App Store Connect API key or an app specific
+# password as secrets set through the infrastructure repository. Then the job would run
+# `notarytool submit --wait` and `stapler staple`. Until then each release triggers a new
+# permission prompt and Gatekeeper blocks the first open. The README says so.
+# No secret is used here.
+#
+# Needs `task bundle` from issue 25. It must leave one signed `*.app`
+# in `dist/`. A runner has no usable audio device, so the job builds and verifies only.
+#
+# A dry run: start this workflow by hand (workflow_dispatch) on a branch. It builds and
+# uploads the two files as a workflow artifact and does not touch any release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  bundle:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # The release tag on a release event, the branch name on a dry run. Read through env, never inline.
+      REF_NAME: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+      IS_RELEASE: ${{ github.event_name == 'release' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          persist-credentials: false
+
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a  # v5.2.10
+
+      - name: Build and ad hoc sign the app bundle
+        run: task bundle
+
+      - name: Zip the app and write the checksum
+        run: |
+          set -euo pipefail
+          version="${REF_NAME#v}"
+          version="${version//\//-}"
+          apps=(dist/*.app)
+          if [ "${#apps[@]}" -ne 1 ] || [ ! -d "${apps[0]}" ]; then
+            echo "expected exactly one .app in dist/, found: ${apps[*]}" >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict "${apps[0]}"
+          zip="audio-router-${version}-arm64.zip"
+          mkdir -p out
+          ditto -c -k --keepParent "${apps[0]}" "out/${zip}"
+          (cd out && shasum -a 256 "${zip}" > "${zip}.sha256")
+          if unzip -l "out/${zip}" | grep -q 'audio-router-proto'; then
+            echo "the zip must not contain audio-router-proto" >&2
+            exit 1
+          fi
+          cat "out/${zip}.sha256"
+
+      - name: Upload to the release
+        if: env.IS_RELEASE == 'true'
+        run: gh release upload "${REF_NAME}" out/* --clobber --repo "${GITHUB_REPOSITORY}"
+
+      - name: Upload as a workflow artifact on a dry run
+        if: env.IS_RELEASE != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: audio-router-arm64
+          path: out/*
+          if-no-files-found: error
