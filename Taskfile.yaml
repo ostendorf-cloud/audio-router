@@ -17,6 +17,43 @@ tasks:
     cmds:
       - swift test
 
+  bundle:
+    desc: Build dist/audio-router.app (arm64 release, ad hoc signed). VERSION overrides the git describe version.
+    cmds:
+      - scripts/bundle.sh
+
+  bundle:zip:
+    desc: Zip dist/audio-router.app to dist/audio-router-<version>-arm64.zip with ditto. Run after bundle.
+    cmds:
+      - |
+        set -euo pipefail
+        version="$(plutil -extract CFBundleShortVersionString raw dist/audio-router.app/Contents/Info.plist)"
+        [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || { echo "invalid version ${version}" >&2; exit 1; }
+        zip="dist/audio-router-${version}-arm64.zip"
+        rm -f "${zip}"
+        ditto -c -k --keepParent dist/audio-router.app "${zip}"
+        if unzip -Z1 "${zip}" | grep -q 'audio-router-proto'; then
+          echo "the zip must not contain audio-router-proto" >&2
+          exit 1
+        fi
+        echo "${zip}"
+
+  bundle:verify:
+    desc: Check dist/audio-router.app (plist, signature, arm64 only, no prototype binary). Run after bundle.
+    cmds:
+      - |
+        set -euo pipefail
+        app=dist/audio-router.app
+        plutil -lint "${app}/Contents/Info.plist"
+        codesign --verify --deep --strict "${app}"
+        if find "${app}" -name 'audio-router-proto*' | grep -q .; then
+          echo "audio-router-proto is in the bundle" >&2
+          exit 1
+        fi
+        archs="$(lipo -archs "${app}/Contents/MacOS/audio-router")"
+        echo "archs: ${archs}"
+        [ "${archs}" = "arm64" ] || { echo "expected only arm64" >&2; exit 1; }
+
   lint:fmt:
     desc: Swift format check, part of the Swift toolchain
     cmds:

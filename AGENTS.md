@@ -25,6 +25,9 @@ The global baseline already applies here and is not repeated below.
 - `Sources/audio-router-proto` is the command line diagnostic tool, not part of a release.
   It wires signals and the real backend, nothing else.
   `Info.plist` next to it is embedded into the binary, see below.
+- `scripts/bundle.sh` and `Resources/` build `dist/audio-router.app` (`task bundle`, `task bundle:verify`,
+  `task bundle:zip`). Only the `AudioRouterApp` product goes in, never `audio-router-proto`.
+  `Resources/AppIcon.iconset` is a placeholder. `task bundle:verify` is not in `task check`, the `bundle` CI job runs it.
 - `Tests/RouterCoreTests` has the unit tests (Swift Testing) and the fakes.
   `Tests/RouterCoreAudioTests` runs the real time code on in memory buffer lists.
 - `docs/prototype-findings.md` is a template the owner fills from a real Mac. Never fill it with guesses.
