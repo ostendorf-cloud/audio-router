@@ -42,7 +42,8 @@ public enum DeviceModelError: Error, Equatable, Sendable {
 /// the period, gone and back with the same state, reports nothing.
 ///
 /// One model has exactly one consumer: `start` throws `DeviceModelError.alreadyRunning` while it
-/// runs. Several consumers, such as the engine and the UI, need a fan out layer above the model.
+/// runs. Several consumers, such as the engine and the UI, need a fan out layer above the model:
+/// `RouteEngine` is the consumer and publishes the devices in its snapshot for the UI.
 /// A model that is dropped without `cancel` removes its listener when it goes away. The handle
 /// from `start` holds the model weakly, so `let h = try DeviceModel(...).start {}` without keeping
 /// the model stops at once and without an error: keep a reference to the model.
