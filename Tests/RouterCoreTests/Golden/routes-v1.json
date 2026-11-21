@@ -1,0 +1,23 @@
+{
+  "routes" : [
+    {
+      "appBundleID" : "com.example.player",
+      "destinationPair" : 3,
+      "destinationUID" : "device-uid-a",
+      "enabled" : true,
+      "id" : "00000000-0000-0000-0000-000000000001",
+      "name" : "Player to 3,4",
+      "sourcePair" : 1
+    },
+    {
+      "appBundleID" : "com.example.browser",
+      "destinationPair" : 5,
+      "destinationUID" : "device-uid-a",
+      "enabled" : false,
+      "id" : "00000000-0000-0000-0000-000000000002",
+      "name" : "Browser to 5,6",
+      "sourcePair" : 1
+    }
+  ],
+  "schemaVersion" : 1
+}

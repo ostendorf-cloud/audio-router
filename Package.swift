@@ -40,7 +40,7 @@ let package = Package(
                 ])
             ]
         ),
-        .testTarget(name: "RouterCoreTests", dependencies: ["RouterCore"]),
+        .testTarget(name: "RouterCoreTests", dependencies: ["RouterCore"], exclude: ["Golden"]),
         .testTarget(name: "RouterCoreAudioTests", dependencies: ["RouterCore", "RouterCoreAudio"]),
     ]
 )
