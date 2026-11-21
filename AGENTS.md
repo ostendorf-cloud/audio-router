@@ -174,4 +174,5 @@ The security app is, its `DCO` check ran.
   The `renovate.yaml` caller has no `workflow_run` trigger, workflows#74 is not merged.
 - Local builds are signed ad hoc by the toolchain. There is no notarization and no Homebrew formula.
   `release.yaml` builds and publishes no binary.
+  `app-release.yaml` attaches the ad hoc signed arm64 zip to a published release and depends on `task bundle` from #25.
 - `lint:license` in the Taskfile and `find-commands` in `checks.yaml` are kept in step by hand.
