@@ -1,0 +1,4 @@
+route 00000000-0000-0000-0000-0000000000a1: the bundle id is empty
+route 00000000-0000-0000-0000-0000000000a2: no output device with uid missing-uid
+route 00000000-0000-0000-0000-0000000000a3: channels 7,8 do not fit a device with 7 output channels
+route 00000000-0000-0000-0000-0000000000a5: channels 3,4 of device device-uid-a are already used by route 00000000-0000-0000-0000-0000000000a4
