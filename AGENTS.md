@@ -106,6 +106,7 @@ Nothing active prints the full permission warning only.
     global off and on, or a new run (`stopAll`, then `start`).
     A transient error after `maxAttempts` holds `retriesExhausted` until the same actions, and also until the
     device comes back after it was gone or the app starts again after it quit.
+    The attempt count clears on the same events, a replug and an app restart included.
   - `setOn(false)` and `stopAll` block the caller's thread. The app calls `stopAll` off the main thread on quit:
     `applicationShouldTerminate` answers `terminateLater` and replies when `stopAll` returned.
   - `observe` handlers run on the engine queue and must not call `start`, `setOn` or `stopAll`.
@@ -116,7 +117,10 @@ Nothing active prints the full permission warning only.
     (`docs/prototype-findings.md` section 1). As an OSStatus it ends in `retriesExhausted`, as silence in the
     `noSignal` warning. `EngineConfiguration.classify` can map a measured status to `permanent`.
   - The default output moving away from a route's device does not count as device lost yet.
-    A follow up issue tracks it.
+    Issue #42 tracks it.
+  - A flapping device with a failing start retries without end and never reaches `retriesExhausted`,
+    because every replug clears the attempt count. The quiet period of `DeviceModel` plus the first backoff
+    delay bound the pace. A possible follow up: clear the count only after the device stayed present for a while.
   - The single serial queue blocks every other route while one start blocks, for example on a permission prompt.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.
