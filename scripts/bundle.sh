@@ -7,22 +7,27 @@
 #   scripts/bundle.sh             build and sign
 #   scripts/bundle.sh --dry-run   print the rendered Info.plist and stop
 # The version comes from $VERSION, else from `git describe --tags --always`, else 0.0.0-dev.
+# It must be MAJOR.MINOR.PATCH with an optional -suffix or +build, at most 64 characters.
 set -euo pipefail
 
 dry_run=false
-case "${1:-}" in
-  "") ;;
-  --dry-run) dry_run=true ;;
-  *)
+if [ "$#" -gt 1 ]; then
+  echo "usage: $0 [--dry-run]" >&2
+  exit 2
+elif [ "$#" -eq 1 ]; then
+  if [ "$1" = "--dry-run" ]; then
+    dry_run=true
+  else
     echo "usage: $0 [--dry-run]" >&2
     exit 2
-    ;;
-esac
+  fi
+fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${root}"
 
-pattern='^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'
+num='(0|[1-9][0-9]*)'
+pattern="^${num}\\.${num}\\.${num}([-+][0-9A-Za-z][0-9A-Za-z.-]*)?\$"
 
 version="${VERSION:-}"
 if [ -z "${version}" ]; then
@@ -31,33 +36,38 @@ if [ -z "${version}" ]; then
   if [ -z "${version}" ]; then
     version="0.0.0-dev"
   elif [[ ! "${version}" =~ ${pattern} ]]; then
-    # No tag reachable: git describe printed only a commit hash.
+    # git describe printed a commit hash or a tag that is not MAJOR.MINOR.PATCH.
     version="0.0.0-dev-${version}"
   fi
 else
   version="${version#v}"
 fi
-if [[ ! "${version}" =~ ${pattern} ]]; then
-  echo "invalid version '${version}', expected MAJOR.MINOR.PATCH[-suffix]" >&2
+if [ "${#version}" -gt 64 ] || [[ "${version}" == *--* ]] || [[ ! "${version}" =~ ${pattern} ]]; then
+  echo "invalid version '${version}', expected MAJOR.MINOR.PATCH[-suffix], no '--', at most 64 characters" >&2
   exit 1
 fi
+# CFBundleVersion is period separated integers, so it gets the numeric part only.
+bundle_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
 
-template="${root}/Resources/Info.plist.template"
-plist="$(<"${template}")"
+plist="$(<"${root}/Resources/Info.plist.template")"
 plist="${plist//@VERSION@/${version}}"
+plist="${plist//@BUNDLE_VERSION@/${bundle_version}}"
 
 if [ "${dry_run}" = true ]; then
   printf '%s\n' "${plist}"
   exit 0
 fi
 
-app="${root}/dist/audio-router.app"
-rm -rf "${app}"
-mkdir -p "${app}/Contents/MacOS" "${app}/Contents/Resources"
-
+# Build first. A failed build leaves the previous bundle alone.
 # Only the app product is built, so audio-router-proto never enters the bundle.
 swift build -c release --arch arm64 --product AudioRouterApp
 bin_dir="$(swift build -c release --arch arm64 --show-bin-path)"
+
+app="${root}/dist/audio-router.app"
+ok=false
+trap '[ "${ok}" = true ] || rm -rf "${app}"' EXIT
+rm -rf "${app}"
+mkdir -p "${app}/Contents/MacOS" "${app}/Contents/Resources"
 cp "${bin_dir}/AudioRouterApp" "${app}/Contents/MacOS/audio-router"
 
 printf '%s\n' "${plist}" >"${app}/Contents/Info.plist"
@@ -69,4 +79,5 @@ iconutil -c icns "${root}/Resources/AppIcon.iconset" -o "${app}/Contents/Resourc
 codesign --force --sign - --options runtime "${app}"
 codesign --verify --deep --strict "${app}"
 
+ok=true
 echo "built ${app} (version ${version})"

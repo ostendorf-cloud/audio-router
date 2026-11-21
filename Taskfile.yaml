@@ -31,28 +31,48 @@ tasks:
         [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || { echo "invalid version ${version}" >&2; exit 1; }
         zip="dist/audio-router-${version}-arm64.zip"
         rm -f "${zip}"
-        ditto -c -k --keepParent dist/audio-router.app "${zip}"
-        if unzip -Z1 "${zip}" | grep -q 'audio-router-proto'; then
+        # --norsrc and --noextattr keep AppleDouble ._ entries out of the zip. They would break the seal after unzip.
+        ditto -c -k --norsrc --noextattr --keepParent dist/audio-router.app "${zip}"
+        listing="$(unzip -Z1 "${zip}")"
+        if grep -qE 'audio-router-proto' <<<"${listing}"; then
           echo "the zip must not contain audio-router-proto" >&2
+          exit 1
+        fi
+        if grep -qE '(^|/)\._|__MACOSX' <<<"${listing}"; then
+          echo "the zip must not contain AppleDouble or __MACOSX entries" >&2
           exit 1
         fi
         echo "${zip}"
 
   bundle:verify:
-    desc: Check dist/audio-router.app (plist, signature, arm64 only, no prototype binary). Run after bundle.
+    desc: Check dist/audio-router.app (plist keys, signature, runtime, no sandbox, arm64 only, no prototype). Run after bundle.
     cmds:
       - |
         set -euo pipefail
         app=dist/audio-router.app
-        plutil -lint "${app}/Contents/Info.plist"
+        plist="${app}/Contents/Info.plist"
+        fail() { echo "$1" >&2; exit 1; }
+        plutil -lint "${plist}"
         codesign --verify --deep --strict "${app}"
-        if find "${app}" -name 'audio-router-proto*' | grep -q .; then
-          echo "audio-router-proto is in the bundle" >&2
-          exit 1
-        fi
-        archs="$(lipo -archs "${app}/Contents/MacOS/audio-router")"
+        # Hardened runtime on, and no entitlements at all, so no sandbox entitlement.
+        info="$(codesign -dv "${app}" 2>&1)"
+        [[ "${info}" == *"flags="*runtime* ]] || fail "the signature has no hardened runtime flag"
+        ents="$(codesign -d --entitlements - "${app}" 2>/dev/null || true)"
+        [ -z "${ents}" ] || fail "the signature carries entitlements"
+        [ "$(plutil -extract LSUIElement raw "${plist}")" = "true" ] || fail "LSUIElement is not true"
+        [ "$(plutil -extract LSMinimumSystemVersion raw "${plist}")" = "14.2" ] || fail "LSMinimumSystemVersion is not 14.2"
+        usage="$(plutil -extract NSAudioCaptureUsageDescription raw "${plist}")"
+        [ -n "${usage}" ] || fail "NSAudioCaptureUsageDescription is empty"
+        exe="$(plutil -extract CFBundleExecutable raw "${plist}")"
+        [ -f "${app}/Contents/Resources/AppIcon.icns" ] || fail "AppIcon.icns is missing"
+        files="$(find "${app}/Contents/MacOS" -type f)"
+        [ "${files}" = "${app}/Contents/MacOS/${exe}" ] || fail "Contents/MacOS must hold only ${exe}"
+        # Finds the name anywhere in the bundle. A renamed copy of the prototype is not covered.
+        found="$(find "${app}" -name '*audio-router-proto*')"
+        [ -z "${found}" ] || fail "audio-router-proto is in the bundle: ${found}"
+        archs="$(lipo -archs "${app}/Contents/MacOS/${exe}")"
         echo "archs: ${archs}"
-        [ "${archs}" = "arm64" ] || { echo "expected only arm64" >&2; exit 1; }
+        [ "${archs}" = "arm64" ] || fail "expected only arm64"
 
   lint:fmt:
     desc: Swift format check, part of the Swift toolchain
