@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Simon Ostendorf -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- The build script fills in the two version values below. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>cloud.ostendorf.audio-router</string>
+	<key>CFBundleName</key>
+	<string>audio-router</string>
+	<key>CFBundleDisplayName</key>
+	<string>audio-router</string>
+	<key>CFBundleExecutable</key>
+	<string>audio-router</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@BUNDLE_VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.2</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>audio-router captures the audio of the app you choose and plays it on a channel pair of the output device you choose.</string>
+</dict>
+</plist>

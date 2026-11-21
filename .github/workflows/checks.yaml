@@ -32,6 +32,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: swift test
 
+  # Builds the arm64 release bundle with ad hoc signing and verifies it. Needs only task, the
+  # Swift toolchain and the macOS tools of the runner. Not part of task check: a release build
+  # is slow.
+  bundle:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a  # v5.2.10
+        with:
+          install_args: task
+      - run: task bundle bundle:verify bundle:zip
+
   markdownlint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
