@@ -9,14 +9,17 @@ public enum RouteValidationError: Error, Equatable, Sendable, CustomStringConver
     case unknownDevice(route: UUID, uid: String)
     /// The destination pair needs channels `first` and `first + 1`, the device has fewer.
     case pairOutOfRange(route: UUID, first: Int, deviceChannels: Int)
-    /// Another enabled route writes the same pair of the same device.
-    case duplicateDestinationPair(route: UUID, other: UUID, uid: String, first: Int)
+    /// Another enabled route writes at least one of the same channels of the same device. The
+    /// pairs may be identical or overlap by one channel, for example 3,4 and 4,5.
+    case duplicateDestinationPair(route: UUID, first: Int, other: UUID, otherFirst: Int, uid: String)
+    /// Two routes carry the same id. Reported for every later route with that id.
+    case duplicateRouteID(route: UUID)
 
     /// The route the error is about.
     public var routeID: UUID {
         switch self {
         case .emptyBundleID(let route), .unknownDevice(let route, _), .pairOutOfRange(let route, _, _),
-            .duplicateDestinationPair(let route, _, _, _):
+            .duplicateDestinationPair(let route, _, _, _, _), .duplicateRouteID(let route):
             return route
         }
     }
@@ -31,10 +34,12 @@ public enum RouteValidationError: Error, Equatable, Sendable, CustomStringConver
             return
                 "route \(Self.label(route)): channels \(first),\(first + 1) do not fit a device with "
                 + "\(deviceChannels) output channels"
-        case .duplicateDestinationPair(let route, let other, let uid, let first):
+        case .duplicateDestinationPair(let route, let first, let other, let otherFirst, let uid):
             return
-                "route \(Self.label(route)): channels \(first),\(first + 1) of device \(uid) are already used "
-                + "by route \(Self.label(other))"
+                "route \(Self.label(route)): channels \(first),\(first + 1) of device \(uid) share a channel "
+                + "with channels \(otherFirst),\(otherFirst + 1) of route \(Self.label(other))"
+        case .duplicateRouteID(let route):
+            return "route \(Self.label(route)): the route id is used more than once"
         }
     }
 
@@ -49,17 +54,28 @@ public enum RouteValidator {
     ///
     /// An app that is not running is not an error: the route waits for it. So `processes` does not
     /// decide anything yet. It is part of the signature so the check can grow without a new API.
-    /// Only enabled routes occupy a destination pair, a disabled route never clashes.
+    ///
+    /// A disabled route to an unplugged device is a normal state. So a disabled route is checked
+    /// for an empty bundle id and a duplicate route id only. It skips the device and pair checks
+    /// and never claims a destination channel.
+    ///
+    /// Two enabled routes of the same device clash when they share any channel, so 3,4 and 4,5
+    /// clash and 3,4 and 5,6 do not. The model itself allows any adjacent pair.
     public static func validate(
         _ routes: [Route], devices: [OutputDevice], processes: [AudioProcess]
     ) -> [RouteValidationError] {
         _ = processes
         var errors: [RouteValidationError] = []
-        var claimed: [PairKey: UUID] = [:]
+        var seenIDs: Set<UUID> = []
+        var claims: [Claim] = []
         for route in routes {
+            if !seenIDs.insert(route.id).inserted {
+                errors.append(.duplicateRouteID(route: route.id))
+            }
             if route.appBundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 errors.append(.emptyBundleID(route: route.id))
             }
+            guard route.enabled else { continue }
             guard let device = devices.first(where: { $0.uid == route.destinationUID }) else {
                 errors.append(.unknownDevice(route: route.id, uid: route.destinationUID))
                 continue
@@ -70,21 +86,22 @@ public enum RouteValidator {
                         route: route.id, first: route.destinationPair.first, deviceChannels: device.channelCount))
                 continue
             }
-            guard route.enabled else { continue }
-            let key = PairKey(uid: route.destinationUID, first: route.destinationPair.first)
-            if let other = claimed[key] {
+            let first = route.destinationPair.first
+            if let other = claims.first(where: { $0.uid == route.destinationUID && abs($0.first - first) <= 1 }) {
                 errors.append(
                     .duplicateDestinationPair(
-                        route: route.id, other: other, uid: route.destinationUID, first: key.first))
+                        route: route.id, first: first, other: other.route, otherFirst: other.first,
+                        uid: route.destinationUID))
             } else {
-                claimed[key] = route.id
+                claims.append(Claim(uid: route.destinationUID, first: first, route: route.id))
             }
         }
         return errors
     }
 
-    private struct PairKey: Hashable {
+    private struct Claim {
         let uid: String
         let first: Int
+        let route: UUID
     }
 }

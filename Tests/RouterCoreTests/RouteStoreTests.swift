@@ -128,6 +128,12 @@ struct RouteStoreTests {
 }
 
 struct RouteValidationTests {
+    private func clash(_ route: Int, _ first: Int, with other: Int, _ otherFirst: Int) -> RouteValidationError {
+        .duplicateDestinationPair(
+            route: RouteSamples.id(route), first: first, other: RouteSamples.id(other), otherFirst: otherFirst,
+            uid: "device-uid-a")
+    }
+
     private let devices = [
         OutputDevice(objectID: 1, uid: "device-uid-a", name: "Device A", channelCount: 8)
     ]
@@ -146,6 +152,8 @@ struct RouteValidationTests {
             RouteSamples.route(0xa3, pair: 7),
             RouteSamples.route(0xa4, pair: 3),
             RouteSamples.route(0xa5, pair: 3),
+            RouteSamples.route(0xa1, pair: 5, enabled: false),
+            RouteSamples.route(0xa7, pair: 4),
         ]
         let small = [OutputDevice(objectID: 1, uid: "device-uid-a", name: "Device A", channelCount: 7)]
         let errors = RouteValidator.validate(routes, devices: small, processes: [])
@@ -168,12 +176,56 @@ struct RouteValidationTests {
         #expect(
             RouteValidator.validate(
                 [RouteSamples.route(1), RouteSamples.route(2)], devices: devices, processes: [])
-                == [.duplicateDestinationPair(route: id(2), other: id(1), uid: "device-uid-a", first: 3)])
+                == [clash(2, 3, with: 1, 3)])
+        #expect(
+            RouteValidator.validate(
+                [RouteSamples.route(1), RouteSamples.route(1, pair: 5)], devices: devices, processes: [])
+                == [.duplicateRouteID(route: id(1))])
+    }
+
+    @Test func overlappingPairsOfOneDeviceClash() {
+        // 3,4 against 4,5 and 4,5 against 3,4 share channel 4.
+        #expect(
+            RouteValidator.validate(
+                [RouteSamples.route(1, pair: 3), RouteSamples.route(2, pair: 4)], devices: devices, processes: [])
+                == [clash(2, 4, with: 1, 3)])
+        #expect(
+            RouteValidator.validate(
+                [RouteSamples.route(1, pair: 4), RouteSamples.route(2, pair: 3)], devices: devices, processes: [])
+                == [clash(2, 3, with: 1, 4)])
+    }
+
+    @Test func adjacentPairsWithoutASharedChannelDoNotClash() {
+        let routes = [RouteSamples.route(1, pair: 3), RouteSamples.route(2, pair: 5)]
+        #expect(RouteValidator.validate(routes, devices: devices, processes: []).isEmpty)
     }
 
     @Test func aDisabledRouteDoesNotClash() {
         let routes = [RouteSamples.route(1), RouteSamples.route(2, enabled: false)]
         #expect(RouteValidator.validate(routes, devices: devices, processes: []).isEmpty)
+        let overlapping = [RouteSamples.route(1, pair: 3), RouteSamples.route(2, pair: 4, enabled: false)]
+        #expect(RouteValidator.validate(overlapping, devices: devices, processes: []).isEmpty)
+    }
+
+    @Test func aDisabledRouteSkipsTheDeviceChecks() {
+        let route = RouteSamples.route(1, uid: "unplugged-uid", pair: 99, enabled: false)
+        #expect(RouteValidator.validate([route], devices: devices, processes: []).isEmpty)
+        let outOfRange = RouteSamples.route(2, pair: 99, enabled: false)
+        #expect(RouteValidator.validate([outOfRange], devices: devices, processes: []).isEmpty)
+    }
+
+    @Test func aDisabledRouteStillNeedsABundleID() {
+        let route = RouteSamples.route(1, bundle: "", uid: "unplugged-uid", pair: 99, enabled: false)
+        #expect(
+            RouteValidator.validate([route], devices: devices, processes: [])
+                == [.emptyBundleID(route: RouteSamples.id(1))])
+    }
+
+    @Test func aDuplicateRouteIDCountsForDisabledRoutesToo() {
+        let routes = [RouteSamples.route(1, enabled: false), RouteSamples.route(1, pair: 5, enabled: false)]
+        #expect(
+            RouteValidator.validate(routes, devices: devices, processes: [])
+                == [.duplicateRouteID(route: RouteSamples.id(1))])
     }
 
     @Test func theSamePairOnAnotherDeviceDoesNotClash() {

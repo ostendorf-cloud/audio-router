@@ -60,7 +60,11 @@ public struct RouteStore: Sendable {
     }
 
     /// Writes the routes atomically. Refuses, and leaves the file as it is, when the file on disk
-    /// has a newer schema or cannot be read.
+    /// has a newer schema or cannot be read. A corrupt file blocks every save on purpose, so the
+    /// UI will need a way to move the file aside later.
+    ///
+    /// After the rename the directory is synced so the new name survives a crash. That sync is best
+    /// effort: the rename has succeeded by then, so a refusal of the sync is ignored.
     public func save(_ routes: [Route]) throws {
         if let existing = try readData() {
             _ = try Self.decode(existing)
@@ -76,6 +80,11 @@ public struct RouteStore: Sendable {
             try handle.close()
             guard rename(temporary.path, url.path) == 0 else {
                 throw RouteStoreError.io(String(cString: strerror(errno)))
+            }
+            let directoryDescriptor = open(directory.path, O_RDONLY)
+            if directoryDescriptor >= 0 {
+                _ = fsync(directoryDescriptor)
+                close(directoryDescriptor)
             }
         } catch {
             try? FileManager.default.removeItem(at: temporary)
