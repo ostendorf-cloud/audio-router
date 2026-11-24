@@ -146,6 +146,25 @@ Nothing active prints the full permission warning only.
     because every replug clears the attempt count. The quiet period of `DeviceModel` plus the first backoff
     delay bound the pace. A possible follow up: clear the count only after the device stayed present for a while.
   - The single serial queue blocks every other route while one start blocks, for example on a permission prompt.
+- Route editor (`Editor*.swift` in `AudioRouterApp` and `AudioRouterAppCore`):
+  - `EditorViewModel` holds the logic. It sits behind `DeviceProviding`, `AppProviding` and `EditorRouteStoring`.
+    `EditorSnapshotProvider` reads devices and apps from the engine snapshot, so the UI starts no second monitor.
+  - Validation is `RouteValidator`. Its errors for the edited route map to field messages.
+    Errors of other routes never block a save. The edited route is checked as enabled.
+  - Save writes the `RouteStore` first and calls `engine.setRoutes` second. A failed write leaves the engine alone.
+    Delete does the same with the route removed, and `setRoutes` tears the removed route down.
+  - The destination picker offers the stereo pairs 1,2, 3,4 and so on of the whole device.
+    The source picker offers the pairs of output stream 0, because a device stream tap has the format of that
+    stream (`CoreAudioRoutingBackend.createTap`). The device model lists buffers, so the first buffer stands for
+    stream 0 when it has two channels or more, else the whole device count is used. That is inferred, not
+    measured. The validator does not check the source pair, and an `unsupportedFormat` start failure stays with
+    issue 23.
+  - The menu switch of a route is not stored. A save writes the on and off state of every route and an edit never
+    changes the state of the edited route.
+  - `RouteEngine.setRoutes` returns before the snapshot changes. `DesiredRoutesEngine` wraps the engine, keeps the
+    last list sent and is the one engine of the shell and the editor. A menu toggle, a save and a delete build on
+    that list and not on the snapshot. Window left: a change that bypasses the wrapper, for example a second
+    caller of the raw engine, would still build on a stale list.
 - Known limits of the app shell:
   - Quit has no time limit, so a hanging `stopAll` keeps the app from quitting. That keeps the teardown guarantee.
   - A failed engine start (`startFailure`) clears only on a new `start`, nothing retries it before a relaunch.
