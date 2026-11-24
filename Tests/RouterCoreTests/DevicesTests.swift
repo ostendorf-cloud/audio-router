@@ -174,6 +174,16 @@ private func device(
         isAlive: alive, isDefaultOutput: isDefault)
 }
 
+/// The read that confirms a missing device, as the model uses it by default.
+private let confirmDelay = DeviceModel.defaultLossConfirmDelay
+
+/// A device whose alive flag could not be read. The flag value is what the reader falls back to.
+private func unknownAlive(_ uid: String) -> DeviceInfo {
+    DeviceInfo(
+        uid: uid, name: "Name of \(uid)", outputChannelsPerStream: [2], nominalSampleRate: 48000, isAlive: false,
+        isDefaultOutput: false, isAliveKnown: false)
+}
+
 private struct Rig {
     let monitor: FakeDeviceMonitor
     let clock = FakeDebounceClock()
@@ -234,16 +244,178 @@ struct DeviceModelTests {
         #expect(rig.model.devices.map(\.uid) == ["uid-a"])
     }
 
-    @Test func aFlapWithinTheQuietPeriodReportsNothing() throws {
+    @Test func aMissingDeviceIsReportedAfterTheConfirmReadNotAfterTheQuietPeriod() throws {
+        let rig = Rig([device("uid-a"), device("uid-b", isDefault: true)])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a")])
+        rig.monitor.emit(.deviceList)
+        #expect(rig.recorder.batches.isEmpty)
+        rig.clock.advance(by: confirmDelay)
+        // The whole difference goes out with the confirmed loss.
+        #expect(
+            rig.recorder.batches == [
+                [.removed(device("uid-b", isDefault: true)), .defaultOutputChanged(from: "uid-b", to: nil)]
+            ])
+        #expect(rig.model.devices.map(\.uid) == ["uid-a"])
+        rig.clock.advance(by: 5)
+        #expect(rig.recorder.batches.count == 1)
+    }
+
+    @Test func theConfirmReadIsShortAndFarBelowTheQuietPeriod() throws {
+        #expect(DeviceModel.defaultLossConfirmDelay > 0)
+        #expect(DeviceModel.defaultLossConfirmDelay <= 0.1)
         let rig = Rig([device("uid-a"), device("uid-b")])
         _ = try rig.start()
         rig.monitor.set([device("uid-a")])
         rig.monitor.emit(.deviceList)
-        rig.clock.advance(by: 0.5)
+        #expect(rig.clock.requestedDelays == [1.5, DeviceModel.defaultLossConfirmDelay])
+    }
+
+    @Test func aDeviceMissingFromOneReadOnlyIsNotLost() throws {
+        // A read during device churn can miss a device whose channel or uid read failed.
+        let rig = Rig([device("uid-a"), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a")])
+        rig.monitor.emit(.deviceList)
         rig.monitor.set([device("uid-a"), device("uid-b")])
+        rig.clock.advance(by: confirmDelay)
+        #expect(rig.recorder.batches.isEmpty)
+        #expect(rig.model.devices.map(\.uid) == ["uid-a", "uid-b"])
+        rig.clock.advance(by: 5)
+        #expect(rig.recorder.batches.isEmpty)
+    }
+
+    @Test func aFailedAliveReadKeepsTheLastState() throws {
+        let rig = Rig([device("uid-a")])
+        _ = try rig.start()
+        rig.monitor.set([unknownAlive("uid-a")])
+        rig.monitor.emit(.alive)
         rig.monitor.emit(.deviceList)
         rig.clock.advance(by: 5)
         #expect(rig.recorder.batches.isEmpty)
+        #expect(rig.model.devices.first?.isAlive == true)
+    }
+
+    @Test func aFailedAliveReadOfANewDeviceCountsAsNotAlive() throws {
+        let rig = Rig([device("uid-a")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a"), unknownAlive("uid-b")])
+        rig.monitor.emit(.deviceList)
+        rig.clock.advance(by: 1.5)
+        #expect(rig.recorder.batches == [[.added(device("uid-b", alive: false))]])
+    }
+
+    @Test func aDeviceThatIsNoLongerAliveIsReportedAtOnce() throws {
+        let rig = Rig([device("uid-a")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a", alive: false)])
+        rig.monitor.emit(.alive)
+        #expect(rig.recorder.batches == [[.aliveChanged(uid: "uid-a", isAlive: false)]])
+        rig.clock.advance(by: 5)
+        #expect(rig.recorder.batches.count == 1)
+    }
+
+    @Test func aChangeWithoutALossWaitsForTheQuietPeriod() throws {
+        let rig = Rig([device("uid-a"), device("uid-b")])
+        _ = try rig.start()
+        // A first default output, a new device and a new rate: nothing is lost.
+        rig.monitor.set([device("uid-a", rate: 44100), device("uid-b", isDefault: true), device("uid-c")])
+        rig.monitor.emit(.deviceList)
+        rig.monitor.emit(.defaultOutput)
+        rig.monitor.emit(.alive)
+        #expect(rig.recorder.batches.isEmpty)
+        rig.clock.advance(by: 1.5)
+        #expect(
+            rig.recorder.batches == [
+                [
+                    .added(device("uid-c")), .defaultOutputChanged(from: nil, to: "uid-b"),
+                    .sampleRateChanged(uid: "uid-a", from: 48000, to: 44100),
+                ]
+            ])
+    }
+
+    @Test func theDefaultLeavingADeviceIsReportedAtOnceAndTheNewDefaultAfterTheQuietPeriod() throws {
+        // The old default loses its role at once, like a lost device. The new default is a gain
+        // and waits, like an added device.
+        let rig = Rig([device("uid-a", isDefault: true), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a"), device("uid-b", isDefault: true)])
+        rig.monitor.emit(.defaultOutput)
+        #expect(rig.recorder.batches == [[.defaultOutputChanged(from: "uid-a", to: nil)]])
+        #expect(rig.model.defaultOutput == nil)
+        rig.clock.advance(by: 1.4)
+        #expect(rig.recorder.batches.count == 1)
+        rig.clock.advance(by: 0.1)
+        #expect(
+            rig.recorder.batches == [
+                [.defaultOutputChanged(from: "uid-a", to: nil)], [.defaultOutputChanged(from: nil, to: "uid-b")],
+            ])
+        #expect(rig.model.defaultOutput?.uid == "uid-b")
+    }
+
+    @Test func aReadWithoutAnyDefaultIsConfirmedFirst() throws {
+        // No default at all can be a read in the middle of a switch. It waits for the confirm read.
+        let rig = Rig([device("uid-a", isDefault: true), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a"), device("uid-b")])
+        rig.monitor.emit(.defaultOutput)
+        rig.monitor.set([device("uid-a"), device("uid-b", isDefault: true)])
+        #expect(rig.recorder.batches.isEmpty)
+        rig.clock.advance(by: confirmDelay)
+        #expect(rig.recorder.batches == [[.defaultOutputChanged(from: "uid-a", to: nil)]])
+    }
+
+    @Test func aReadWithoutAnyDefaultThatTheConfirmReadContradictsIsNotALoss() throws {
+        let rig = Rig([device("uid-a", isDefault: true), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a"), device("uid-b")])
+        rig.monitor.emit(.defaultOutput)
+        rig.monitor.set([device("uid-a", isDefault: true), device("uid-b")])
+        rig.clock.advance(by: 5)
+        #expect(rig.recorder.batches.isEmpty)
+    }
+
+    @Test func aFlapReportsTheLossAtOnceAndTheReturnAfterTheQuietPeriod() throws {
+        let rig = Rig([device("uid-a"), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a")])
+        rig.monitor.emit(.deviceList)
+        rig.clock.advance(by: confirmDelay)
+        #expect(rig.recorder.batches == [[.removed(device("uid-b"))]])
+        rig.clock.advance(by: 0.5)
+        rig.monitor.set([device("uid-a"), device("uid-b")])
+        rig.monitor.emit(.deviceList)
+        rig.clock.advance(by: 1.4)
+        #expect(rig.recorder.batches.count == 1)
+        rig.clock.advance(by: 0.1)
+        #expect(rig.recorder.batches == [[.removed(device("uid-b"))], [.added(device("uid-b"))]])
+    }
+
+    @Test func aLossFoundWhileNoTimerRunsStillGetsASettle() throws {
+        // The quiet period of the signal ended while the loss was read. Its settle saw the old list,
+        // so the model starts a new period: a device that is back by then is reported.
+        let rig = Rig([device("uid-a"), device("uid-b")])
+        _ = try rig.start()
+        let monitor = rig.monitor
+        let clock = rig.clock
+        let once = Once()
+        // The read of the loss sees uid-b dead. Right after it uid-b is alive again and the
+        // quiet period ends: that settle finds nothing new against the old list.
+        monitor.onSnapshot {
+            if once.first() {
+                monitor.set([device("uid-a"), device("uid-b")])
+                clock.advance(by: 1.5)
+            }
+        }
+        monitor.set([device("uid-a"), device("uid-b", alive: false)])
+        monitor.emit(.alive)
+        monitor.onSnapshot(nil)
+        #expect(rig.recorder.batches == [[.aliveChanged(uid: "uid-b", isAlive: false)]])
+        #expect(clock.pendingCount == 1)
+        clock.advance(by: 1.5)
+        let dead: [DeviceChange] = [.aliveChanged(uid: "uid-b", isAlive: false)]
+        let back: [DeviceChange] = [.aliveChanged(uid: "uid-b", isAlive: true)]
+        #expect(rig.recorder.batches == [dead, back])
     }
 
     @Test func aStormGivesOneBatchAfterTheLastSignal() throws {
@@ -290,7 +462,11 @@ struct DeviceModelTests {
         rig.monitor.set([device("uid-a"), device("uid-b", isDefault: true)])
         rig.monitor.emit(.defaultOutput)
         rig.clock.advance(by: 1.5)
-        #expect(rig.recorder.batches == [[.defaultOutputChanged(from: "uid-a", to: "uid-b")]])
+        // The loss of the old default at once, the new default after the quiet period.
+        #expect(
+            rig.recorder.batches == [
+                [.defaultOutputChanged(from: "uid-a", to: nil)], [.defaultOutputChanged(from: nil, to: "uid-b")],
+            ])
         #expect(rig.model.defaultOutput?.uid == "uid-b")
     }
 
@@ -335,7 +511,7 @@ struct DeviceModelTests {
     @Test func theQuietPeriodIsConfigurable() throws {
         let rig = Rig([device("uid-a")], debounce: 2.0)
         _ = try rig.start()
-        rig.monitor.set([])
+        rig.monitor.set([device("uid-a"), device("uid-b")])
         rig.monitor.emit(.deviceList)
         #expect(rig.clock.requestedDelays == [2.0])
         rig.clock.advance(by: 1.9)
@@ -352,7 +528,8 @@ struct DeviceModelTests {
         let rig = Rig([device("uid-a")])
         let handle = try rig.start()
         #expect(rig.monitor.isObserved)
-        rig.monitor.set([])
+        // An added device, because a loss would be reported at once.
+        rig.monitor.set([device("uid-a"), device("uid-b")])
         rig.monitor.emit(.deviceList)
         #expect(rig.clock.pendingCount == 1)
         handle.cancel()
@@ -401,7 +578,10 @@ struct DeviceModelTests {
     @Test func aChangeWhileTheBaselineIsReadLeadsToOneBatch() throws {
         let rig = Rig([device("uid-a")])
         let monitor = rig.monitor
+        // Once: a signal now reads the devices again, and a hook that signals on every read loops.
+        let once = Once()
         monitor.onSnapshot {
+            guard once.first() else { return }
             monitor.set([device("uid-a"), device("uid-b")])
             monitor.emit(.deviceList)
         }
@@ -419,7 +599,8 @@ struct DeviceModelTests {
         let handle = try model!.start { _ in }
         monitor.set([])
         monitor.emit(.deviceList)
-        #expect(clock.pendingCount == 1)
+        // The quiet period and the read that confirms the missing device.
+        #expect(clock.pendingCount == 2)
         model = nil
         #expect(!monitor.isObserved)
         #expect(monitor.cancelCalls == 1)
@@ -453,7 +634,8 @@ struct DeviceModelTests {
         first.cancel()
         _ = try rig.start()
         rig.clock.advance(by: 1.0)
-        rig.monitor.set([])
+        // An added device, because a loss would be reported at once.
+        rig.monitor.set([device("uid-a"), device("uid-b")])
         rig.monitor.emit(.deviceList)
         #expect(rig.clock.pendingCount == 2)
         rig.clock.advance(by: 0.6)
@@ -488,7 +670,8 @@ struct DeviceModelTests {
         let once = Once()
         monitor.set([device("uid-a"), device("uid-b")])
         monitor.onSnapshot { if once.first() { monitor.emit(.alive) } }
-        monitor.emit(.deviceList)
+        // A signal that reads nothing at once, so the first read is the one after the quiet period.
+        monitor.emit(.sampleRate)
         rig.clock.advance(by: 1.5)
         #expect(rig.recorder.batches == [[.added(device("uid-b"))]])
         #expect(rig.clock.pendingCount == 1)

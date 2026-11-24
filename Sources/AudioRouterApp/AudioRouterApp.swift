@@ -1,20 +1,25 @@
 // Copyright 2026 Simon Ostendorf
 // SPDX-License-Identifier: Apache-2.0
 
-import AppKit
+import AudioRouterAppCore
 import SwiftUI
 
-/// The menu bar app. A placeholder for now: one menu bar icon with a Quit item. The routes, the
-/// engine and the settings follow in later issues. The app talks to the engine only, never to
-/// Core Audio.
+/// The menu bar app. The scenes live in `Shell*.swift`, the testable logic in `AudioRouterAppCore`.
+/// The app talks to the engine only, never to Core Audio.
 @main
 struct AudioRouterMenuBarApp: App {
+    @NSApplicationDelegateAdaptor(ShellAppDelegate.self) private var delegate
+
     var body: some Scene {
-        MenuBarExtra("audio-router", systemImage: "speaker.wave.2") {
-            Button("Quit audio-router") {
-                NSApplication.shared.terminate(nil)
-            }
-            .keyboardShortcut("q")
+        let model = ShellContext.model
+        MenuBarExtra {
+            ShellMenu(model: model)
+        } label: {
+            Image(systemName: model.status.symbolName)
+                .accessibilityLabel(model.status.label)
+        }
+        Settings {
+            ShellSettings()
         }
     }
 }

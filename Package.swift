@@ -25,7 +25,11 @@ let package = Package(
         // The real Core Audio implementation of the RouterCore protocols and the IO proc.
         .target(name: "RouterCoreAudio", dependencies: ["RouterCore"]),
         // The SwiftUI menu bar app.
-        .executableTarget(name: "AudioRouterApp", dependencies: ["RouterCore", "RouterCoreAudio"]),
+        .executableTarget(
+            name: "AudioRouterApp", dependencies: ["AudioRouterAppCore", "RouterCore", "RouterCoreAudio"]),
+        // The testable part of the app: view models, state mapping and the engine seam. An executable
+        // target cannot be imported by a test target, so this stays out of AudioRouterApp. No SwiftUI.
+        .target(name: "AudioRouterAppCore", dependencies: ["RouterCore"]),
         // The command line diagnostic tool. Not part of a release.
         .executableTarget(
             name: "audio-router-proto",
@@ -42,5 +46,6 @@ let package = Package(
         ),
         .testTarget(name: "RouterCoreTests", dependencies: ["RouterCore"], exclude: ["Golden"]),
         .testTarget(name: "RouterCoreAudioTests", dependencies: ["RouterCore", "RouterCoreAudio"]),
+        .testTarget(name: "AudioRouterAppTests", dependencies: ["AudioRouterAppCore", "RouterCore"]),
     ]
 )

@@ -17,10 +17,13 @@ public struct DeviceInfo: Equatable, Sendable {
     public let isAlive: Bool
     /// True for the device that is the system default output.
     public let isDefaultOutput: Bool
+    /// False when the alive flag could not be read. `DeviceModel` then keeps the last known flag,
+    /// so a failed read is never reported as a dead device. Every device the model holds has it true.
+    public let isAliveKnown: Bool
 
     public init(
         uid: String, name: String, outputChannelsPerStream: [Int], nominalSampleRate: Double?, isAlive: Bool,
-        isDefaultOutput: Bool
+        isDefaultOutput: Bool, isAliveKnown: Bool = true
     ) {
         self.uid = uid
         self.name = name
@@ -28,6 +31,7 @@ public struct DeviceInfo: Equatable, Sendable {
         self.nominalSampleRate = nominalSampleRate
         self.isAlive = isAlive
         self.isDefaultOutput = isDefaultOutput
+        self.isAliveKnown = isAliveKnown
     }
 
     /// Output channels summed over all output streams.
@@ -63,6 +67,17 @@ public enum DeviceChange: Equatable, Sendable {
     case sampleRateChanged(uid: String, from: Double, to: Double)
     case aliveChanged(uid: String, isAlive: Bool)
     case channelsChanged(uid: String, from: [Int], to: [Int])
+
+    /// True when a device went away, stopped being alive or stopped being the default output.
+    /// `DeviceModel` reports such a change at once instead of after the quiet period.
+    public var isLoss: Bool {
+        switch self {
+        case .removed: true
+        case .aliveChanged(_, let isAlive): !isAlive
+        case .defaultOutputChanged(let from, _): from != nil
+        case .added, .sampleRateChanged, .channelsChanged: false
+        }
+    }
 
     /// The changes from `old` to `new`, ordered: removed, added, then per device by uid. A name
     /// change alone is not a change. Empty when the two lists describe the same state.
