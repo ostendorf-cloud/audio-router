@@ -39,6 +39,8 @@ final class ShellAppDelegate: NSObject, NSApplicationDelegate {
     /// the app, so the tracker filters on the item titles (`MeterMenuTracker.ownsMenu`).
     private func observeMenuTracking() {
         let center = NotificationCenter.default
+        // The handlers run on the main queue. Only the item titles (strings) cross into the
+        // main actor block, the notification does not.
         center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { note in
             let titles = (note.object as? NSMenu)?.items.map(\.title) ?? []
             MainActor.assumeIsolated { ShellContext.model.menuTracker.menuDidBeginTracking(itemTitles: titles) }

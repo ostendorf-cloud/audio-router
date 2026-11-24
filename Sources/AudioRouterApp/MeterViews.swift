@@ -163,9 +163,5 @@ struct WindowVisibility: NSViewRepresentable {
             let onChange = onChange
             MainActor.assumeIsolated { onChange(visible) }
         }
-
-        deinit {
-            for observer in observers { NotificationCenter.default.removeObserver(observer) }
-        }
     }
 }
