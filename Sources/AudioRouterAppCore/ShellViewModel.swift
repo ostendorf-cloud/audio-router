@@ -96,6 +96,9 @@ public final class ShellViewModel {
         engine.setRoutes(routes)
     }
 
+    /// Clears a held failure of one route and tries again at once.
+    public func retryNow(_ id: UUID) { engine.retryNow(id) }
+
     /// The quit path. Tears every route down off the main thread and calls `reply` on the main actor
     /// only after `stopAll` returned.
     ///

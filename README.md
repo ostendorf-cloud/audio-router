@@ -34,7 +34,10 @@ swift build -c release
 - The app is signed ad hoc and not notarised.
   Notarisation needs a Developer ID Application certificate from the paid Apple Developer Program.
   That certificate does not exist yet.
-- Gatekeeper blocks the first open, and each new release asks for the system audio capture permission again.
+- Gatekeeper blocks the first open, and each new release may ask for the system audio capture permission again
+  until a Developer ID exists.
+- The app cannot read the permission status. It shows a likely cause when no audio arrives and a button that opens
+  System Settings.
 - To open the app past Gatekeeper, use one of these two ways.
   - System Settings, Privacy & Security, then Open Anyway.
   - In a terminal: `xattr -dr com.apple.quarantine <path to the app>`.
