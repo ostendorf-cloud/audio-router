@@ -71,13 +71,13 @@ jobs:
 
   # Validates renovate.json with the shared reusable workflow.
   renovate-config:
-    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate-config.yaml@d285b23ec828534e965da429c46839c36437dd96  # v0.7.0
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate-config.yaml@70490f7a4844b2f27ddee5469759aff1a3e3d57e  # v0.8.0
 
   # The shared reusable workflow pins addlicense itself and takes the file set as complete
   # "find" invocations, one per line. task lint:license keeps the same invocation for local
   # development, and AGENTS.md records that the two are kept in step by hand.
   license:
-    uses: ostendorf-cloud/workflows/.github/workflows/reusable-license.yaml@d285b23ec828534e965da429c46839c36437dd96  # v0.7.0
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-license.yaml@70490f7a4844b2f27ddee5469759aff1a3e3d57e  # v0.8.0
     with:
       copyright-holder: Simon Ostendorf
       year: "2026"
