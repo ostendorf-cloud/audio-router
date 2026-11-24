@@ -20,6 +20,6 @@ permissions:
 
 jobs:
   analyze:
-    uses: ostendorf-cloud/workflows/.github/workflows/reusable-codeql.yaml@d285b23ec828534e965da429c46839c36437dd96  # v0.7.0
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-codeql.yaml@70490f7a4844b2f27ddee5469759aff1a3e3d57e  # v0.8.0
     with:
       languages: '["actions"]'
