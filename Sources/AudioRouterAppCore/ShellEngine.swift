@@ -14,6 +14,7 @@ public protocol ShellEngine: Sendable {
     func start() throws
     func setRoutes(_ routes: [Route])
     func setOn(_ on: Bool)
+    func retryNow(_ id: UUID)
     @discardableResult func stopAll() -> [UUID: [String]]
 }
 

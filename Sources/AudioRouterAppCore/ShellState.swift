@@ -43,6 +43,8 @@ public enum ShellStatus: Equatable, Sendable {
         if startFailed { return .error }
         var worst = ShellStatus.running
         for status in snapshot.routes where status.route.enabled {
+            // A failed teardown step can leave a tap or aggregate device behind (issue 23).
+            if !status.teardownFailures.isEmpty { worst = .warning }
             switch ShellRowState.of(status.state) {
             case .failed: return .error
             case .warning, .waitingForDevice: worst = .warning

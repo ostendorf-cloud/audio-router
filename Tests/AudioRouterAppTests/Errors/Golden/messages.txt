@@ -1,0 +1,30 @@
+waitingForApp | appNotRunning | info | none | Waiting for com.example.music to start.
+waitingForDevice, device gone | deviceGone | warning | chooseDevice | Device dev is gone, likely unplugged or switched off. The route waits for it.
+waitingForDevice, not alive | deviceNotResponding | warning | chooseDevice | X32 is listed but does not respond, likely switched off or disconnected. The route waits for it.
+waitingForDevice, not default | deviceNotDefault | warning | none | X32 is likely no longer the default output. The route waits until it is the default again. com.example.music plays on the current default output meanwhile.
+waitingForDevice, back | deviceReturning | warning | none | X32 is back. The route resumes shortly.
+noSignal, app plays | permissionSilence | warning | openAudioCaptureSettings | No audio from com.example.music for 10 s although it plays. Likely the audio capture permission is missing or denied, or it plays to another device than X32.
+noSignal, app silent | appNotPlaying | warning | none | No audio from com.example.music for 10 s. It is likely paused or not playing to X32. If it plays, the audio capture permission may be missing.
+noSignal, tap check text | tapChannelMismatch | warning | none | Audio likely arrives on other tap channels than the source pair. Check the source channels.
+tapCheck | tapChannelMismatch | warning | none | Audio likely arrives on other tap channels than the source pair. Check the source channels.
+sampleRateMismatch | sampleRateMismatch | warning | none | Sample rates differ: the tap runs at 44100 Hz, X32 at 48000 Hz. The audio is likely affected.
+startFailed, other | startFailed | error | retry | The route could not start. Attempt 2 failed, retrying in 2 s.
+startFailed, permission text | permissionStartFailed | error | openAudioCaptureSettings | The route could not start. Likely the audio capture permission is missing or denied. Attempt 1 failed, retrying in 1 s.
+refused, ambiguous tap | ambiguousTapBuffer | error | none | The tap buffer on X32 cannot be told from a device input. The route refuses to start, a device input could reach the output. It is not retried automatically.
+refused, other | startFailed | error | retry | The route could not start. It is not retried automatically.
+refused, app gone | appNotRunning | error | retry | The route could not start, com.example.music has no audio process. It is not retried automatically.
+refused, device unknown | deviceGone | error | chooseDevice | The route could not start, X32 is likely gone. It is not retried automatically.
+refused, channels | invalidRouteChannels | error | chooseDevice | The route could not start, its channels do not fit X32. It is not retried automatically.
+retriesExhausted, permission text | permissionStartFailed | error | openAudioCaptureSettings | The route could not start. Likely the audio capture permission is missing or denied. It failed 8 times in a row, retries stopped.
+retriesExhausted, other | startFailed | error | retry | The route could not start. It failed 8 times in a row, retries stopped.
+validation | invalidRouteApp | error | none | The route names no app.
+validation | invalidRouteDevice | error | chooseDevice | X32 is not a known output device.
+validation | invalidRouteChannels | error | chooseDevice | Channels 5,6 do not fit: X32 has 4 output channels.
+validation | invalidRouteDuplicatePair | error | chooseDevice | Channels 3,4 of X32 are also used by another route.
+validation | invalidRouteDuplicateID | error | none | The route id is used more than once.
+teardown failures | teardownLeftovers | warning | none | 2 teardown steps failed. A tap or aggregate device likely stays until the app quits.
+teardown failure, one | appNotRunning | info | none | Waiting for com.example.music to start.
+teardown failure, one | teardownLeftovers | warning | none | 1 teardown step failed. A tap or aggregate device likely stays until the app quits.
+two warnings | sampleRateMismatch | warning | none | Sample rates differ: the tap runs at 44100 Hz, X32 at 48000 Hz. The audio is likely affected.
+two warnings | tapChannelMismatch | warning | none | Audio likely arrives on other tap channels than the source pair. Check the source channels.
+engine start failed | engineStartFailed | error | retry | The routing engine could not start. No route runs.

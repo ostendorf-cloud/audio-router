@@ -65,6 +65,10 @@ final class FakeShellEngine: ShellEngine, @unchecked Sendable {
             EngineSnapshot(isOn: on, routes: snapshot.routes, devices: snapshot.devices, apps: snapshot.apps))
     }
 
+    func retryNow(_ id: UUID) {
+        lock.withLock { recorded.append("retryNow(\(id.uuidString))") }
+    }
+
     func stopAll() -> [UUID: [String]] {
         lock.withLock { recorded.append("stopAll") }
         gate?.wait()
