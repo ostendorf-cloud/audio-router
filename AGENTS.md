@@ -99,7 +99,9 @@ Nothing active prints the full permission warning only.
   Do not start a second monitor for the UI.
   - Every callback (monitor, retry timer, poll timer) carries a generation and is dropped when it is stale.
   - `setOn(false)` and `stopAll` return only when every route is down, in the fixed teardown order.
-  - Device recovery uses the quiet period of `DeviceModel`. The engine adds no second debounce.
+  - `DeviceModel` reports a lost or dead device at once, so the route stops and releases the tap.
+    The return waits for the quiet period. The engine adds no second debounce.
+  - A default output change alone never stops, restarts or touches a running route (issue 49).
   - Silence, the tap check and a persisting sample rate mismatch are warnings on `running`, never a stop.
   - Failed starts retry with exponential backoff up to a cap. Other events do not cut the backoff short.
   - A permanent error (`StartErrorClass`) holds `refused` until `retryNow`, a change of that route,
@@ -116,8 +118,10 @@ Nothing active prints the full permission warning only.
   - Whether a denied capture permission fails with an OSStatus or delivers silence is not measured
     (`docs/prototype-findings.md` section 1). As an OSStatus it ends in `retriesExhausted`, as silence in the
     `noSignal` warning. `EngineConfiguration.classify` can map a measured status to `permanent`.
-  - The default output moving away from a route's device does not count as device lost yet.
-    Issue #42 tracks it.
+  - The default output moving away from a route's device does not count as device lost.
+    The concept rule of issue #42 says it should. Issue #49 says it must not. The conflict is open.
+  - A device stream tap captures only audio that goes to its device. Whether the app still
+    reaches the route after the default output moved away is not measured.
   - A flapping device with a failing start retries without end and never reaches `retriesExhausted`,
     because every replug clears the attempt count. The quiet period of `DeviceModel` plus the first backoff
     delay bound the pace. A possible follow up: clear the count only after the device stayed present for a while.
