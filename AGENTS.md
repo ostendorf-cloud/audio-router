@@ -146,6 +146,17 @@ Nothing active prints the full permission warning only.
     because every replug clears the attempt count. The quiet period of `DeviceModel` plus the first backoff
     delay bound the pace. A possible follow up: clear the count only after the device stayed present for a while.
   - The single serial queue blocks every other route while one start blocks, for example on a permission prompt.
+- Route editor (`Editor*.swift` in `AudioRouterApp` and `AudioRouterAppCore`):
+  - `EditorViewModel` holds the logic. It sits behind `DeviceProviding`, `AppProviding` and `EditorRouteStoring`.
+    `EditorSnapshotProvider` reads devices and apps from the engine snapshot, so the UI starts no second monitor.
+  - Validation is `RouteValidator`. Its errors for the edited route map to field messages.
+    Errors of other routes never block a save. The edited route is checked as enabled.
+  - Save writes the `RouteStore` first and calls `engine.setRoutes` second. A failed write leaves the engine alone.
+    Delete does the same with the route removed, and `setRoutes` tears the removed route down.
+  - The pickers offer the stereo pairs 1,2, 3,4 and so on of the destination device. The source picker uses the
+    same count, because a device stream tap has the stream format of the device. The validator does not check
+    the source pair.
+  - The menu switch of a route is not stored. A save writes the engine's on and off state of every route.
 - Known limits of the app shell:
   - Quit has no time limit, so a hanging `stopAll` keeps the app from quitting. That keeps the teardown guarantee.
   - A failed engine start (`startFailure`) clears only on a new `start`, nothing retries it before a relaunch.
