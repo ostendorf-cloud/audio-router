@@ -148,8 +148,21 @@ Nothing active prints the full permission warning only.
   - The single serial queue blocks every other route while one start blocks, for example on a permission prompt.
 - Known limits of the app shell:
   - Quit has no time limit, so a hanging `stopAll` keeps the app from quitting. That keeps the teardown guarantee.
-  - A failed engine start (`startFailure`) clears only on a new `start`, nothing retries it before a relaunch.
-    Issue 23 owns the error handling.
+  - A failed engine start (`startFailure`) clears only on a new `start`. The menu offers "Retry now" for it.
+- Errors and actions (issue 23):
+  - `RouteIssues.of` (`Errors*.swift` in `AudioRouterAppCore`) maps a route state to `RouteIssue` values:
+    kind, severity, message and one `RouteAction` (`openAudioCaptureSettings`, `retry`, `chooseDevice`, `none`).
+    The views in `Sources/AudioRouterApp/Errors*.swift` only show them. `IssueActionRunner` runs the action
+    through `SettingsOpening`, so tests use a fake.
+  - The engine keeps only the text of a start error. `RouteIssues.kind(ofFailureMessage:)` reads that text, and a
+    test pins every `RouterError` text to `kind(of:)`. Reword an error text only together with that mapping.
+  - A new `RouterError` case, `RouteState`, `RouteFailure` or `RouteWarning` case needs a mapping: the exhaustive
+    switches in `ErrorsTests` stop compiling. `Tests/AudioRouterAppTests/Errors/Golden/messages.txt` holds every
+    message. Change it with the text, never to make a test pass.
+  - A message says "likely" where the cause is inferred. The permission is always inferred: no status query is
+    verified and a denied tap may deliver silence. The settings button opens the generic privacy pane, the anchor of
+    the audio capture list is not verified.
+  - The menu bar icon stays `ShellStatus.of`. A test keeps the worst issue severity in step with it.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.
 - Tests use no network, no audio hardware and no permission. New device or process code goes behind a protocol.
