@@ -282,7 +282,8 @@ import Testing
                 isOn: true, routes: [], devices: devices,
                 apps: [AppGroup(bundleID: "com.example.music", processes: [process])]))
         let provider = EditorSnapshotProvider(engine: engine)
-        #expect(provider.devices() == [EditorDevice(uid: "mixer", name: "Mixer", channelCount: 32)])
+        #expect(
+            provider.devices() == [EditorDevice(uid: "mixer", name: "Mixer", channelCount: 32, tapChannelCount: 16)])
         #expect(provider.apps() == [EditorApp(bundleID: "com.example.music", isPlaying: true)])
     }
 }

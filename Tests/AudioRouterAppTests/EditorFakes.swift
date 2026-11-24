@@ -52,6 +52,51 @@ final class FakeDevices: DeviceProviding, AppProviding, @unchecked Sendable {
     func apps() -> [EditorApp] { lock.withLock { appList } }
 }
 
+/// Like the real engine: `setRoutes` only queues, the snapshot follows at `flush`.
+final class LateApplyEngine: ShellEngine, @unchecked Sendable {
+    private let lock = NSLock()
+    private var applied: [Route]
+    private var queued: [[Route]] = []
+    private var sent: [[Route]] = []
+
+    init(routes: [Route] = []) { applied = routes }
+
+    var sentLists: [[Route]] { lock.withLock { sent } }
+
+    var snapshot: EngineSnapshot {
+        let routes = lock.withLock { applied }
+        return EngineSnapshot(
+            isOn: true,
+            routes: routes.map {
+                RouteStatus(route: $0, state: $0.enabled ? .waitingForApp : .disabled, meter: nil, teardownFailures: [])
+            }, devices: [], apps: [])
+    }
+
+    func observe(_ handler: @escaping @Sendable (EngineSnapshot) -> Void) -> any Cancellable { NoCancel() }
+    func start() throws {}
+    func setOn(_ on: Bool) {}
+    func stopAll() -> [UUID: [String]] { [:] }
+
+    func setRoutes(_ routes: [Route]) {
+        lock.withLock {
+            queued.append(routes)
+            sent.append(routes)
+        }
+    }
+
+    /// The engine queue catches up.
+    func flush() {
+        lock.withLock {
+            if let last = queued.last { applied = last }
+            queued = []
+        }
+    }
+
+    private struct NoCancel: Cancellable {
+        func cancel() {}
+    }
+}
+
 enum EditorSamples {
     static let mixer = EditorDevice(uid: "mixer", name: "Mixer", channelCount: 32)
     static let stereo = EditorDevice(uid: "stereo", name: "Speakers", channelCount: 2)

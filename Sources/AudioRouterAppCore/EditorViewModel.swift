@@ -85,7 +85,9 @@ public final class EditorViewModel {
     }
 
     public func beginEdit(_ id: UUID) {
-        guard let route = routes.first(where: { $0.id == id }) else { return }
+        guard var route = routes.first(where: { $0.id == id }) else { return }
+        // The file does not hold the menu switch, so the form shows the state the app asked the engine for.
+        if let live = engine.routesToBuildOn.first(where: { $0.id == id }) { route.enabled = live.enabled }
         draft = EditorDraft(route: route)
         validationShown = true
         failure = nil
@@ -102,9 +104,9 @@ public final class EditorViewModel {
     /// Picks the destination device. A pair that does not fit the new device goes back to 1,2.
     public func selectDevice(_ uid: String) {
         draft.destinationUID = uid
-        guard let count = devices.first(where: { $0.uid == uid })?.channelCount else { return }
-        if draft.destinationFirst + 1 > count { draft.destinationFirst = 1 }
-        if draft.sourceFirst + 1 > count { draft.sourceFirst = 1 }
+        guard let device = devices.first(where: { $0.uid == uid }) else { return }
+        if draft.destinationFirst + 1 > device.channelCount { draft.destinationFirst = 1 }
+        if draft.sourceFirst + 1 > device.tapChannelCount { draft.sourceFirst = 1 }
     }
 
     /// The devices of the picker. A stored device that is not connected stays in the list, so the
@@ -121,9 +123,14 @@ public final class EditorViewModel {
     }
 
     /// The first channels of the pairs the source pair picker offers. A device stream tap has the
-    /// stream format of the destination device, so the same channel count applies.
+    /// format of output stream 0 of the destination device, not of the whole device.
     public var sourcePairChoices: [Int] {
-        Self.pairChoices(channelCount: channelCount, current: draft.sourceFirst)
+        Self.pairChoices(channelCount: tapChannelCount, current: draft.sourceFirst)
+    }
+
+    /// A note under the source picker when the tap has fewer channels than the device.
+    public var sourceNote: String? {
+        tapChannelCount < channelCount ? EditorText.tapLimit : nil
     }
 
     /// Stereo pairs 1,2 then 3,4 and so on, plus the current value when it is not among them.
@@ -173,7 +180,7 @@ public final class EditorViewModel {
     @discardableResult
     public func save() -> Bool {
         refresh()
-        guard issues.isEmpty, let route = makeRoute() else {
+        guard issues.isEmpty, var route = makeRoute() else {
             validationShown = true
             return false
         }
@@ -181,6 +188,9 @@ public final class EditorViewModel {
             let stored = try currentRoutes()
             var updated = stored
             if let index = updated.firstIndex(where: { $0.id == route.id }) {
+                // An edit never switches a route on or off. The menu owns that, and it may have
+                // changed while the form was open.
+                route.enabled = updated[index].enabled
                 updated[index] = route
             } else {
                 updated.append(route)
@@ -221,6 +231,10 @@ public final class EditorViewModel {
         devices.first { $0.uid == draft.destinationUID }?.channelCount ?? 0
     }
 
+    private var tapChannelCount: Int {
+        devices.first { $0.uid == draft.destinationUID }?.tapChannelCount ?? 0
+    }
+
     private var validatorDevices: [OutputDevice] {
         devices.map { OutputDevice(objectID: 0, uid: $0.uid, name: $0.name, channelCount: $0.channelCount) }
     }
@@ -228,11 +242,11 @@ public final class EditorViewModel {
     /// The stored routes with the on and off state the menu holds. The menu switch is not stored, so
     /// the engine's value wins for a route it knows.
     private func currentRoutes() throws -> [Route] {
-        let snapshot = engine.snapshot
+        let desired = engine.routesToBuildOn
         return try store.load().map { route in
-            guard let status = snapshot.status(of: route.id) else { return route }
+            guard let live = desired.first(where: { $0.id == route.id }) else { return route }
             var merged = route
-            merged.enabled = status.route.enabled
+            merged.enabled = live.enabled
             return merged
         }
     }

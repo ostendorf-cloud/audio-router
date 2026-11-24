@@ -9,7 +9,7 @@ import RouterCoreAudio
 /// Builds the real engine on Core Audio and holds the one view model the scenes and the delegate share.
 @MainActor
 enum ShellContext {
-    static let engine = makeEngine()
+    static let engine = DesiredRoutesEngine(makeEngine())
     static let model = ShellViewModel(engine: engine)
 
     private static func makeEngine() -> RouteEngine {

@@ -10,13 +10,18 @@ public struct EditorDevice: Equatable, Sendable, Identifiable {
     public let name: String
     /// Output channels summed over all streams.
     public let channelCount: Int
+    /// The channels of output stream 0, which is the format of a device stream tap. Likely, not
+    /// proven: the device model lists buffers, and a non interleaved stream has one buffer per channel.
+    /// So a first buffer with fewer than two channels counts as unknown and this is `channelCount`.
+    public let tapChannelCount: Int
 
     public var id: String { uid }
 
-    public init(uid: String, name: String, channelCount: Int) {
+    public init(uid: String, name: String, channelCount: Int, tapChannelCount: Int? = nil) {
         self.uid = uid
         self.name = name
         self.channelCount = channelCount
+        self.tapChannelCount = tapChannelCount ?? channelCount
     }
 }
 
@@ -79,7 +84,12 @@ public struct EditorSnapshotProvider: DeviceProviding, AppProviding {
     public func devices() -> [EditorDevice] {
         engine.snapshot.devices
             .filter { $0.outputChannelCount > 0 }
-            .map { EditorDevice(uid: $0.uid, name: $0.name, channelCount: $0.outputChannelCount) }
+            .map { device in
+                let first = device.outputChannelsPerStream.first ?? 0
+                return EditorDevice(
+                    uid: device.uid, name: device.name, channelCount: device.outputChannelCount,
+                    tapChannelCount: first >= 2 ? first : device.outputChannelCount)
+            }
     }
 
     public func apps() -> [EditorApp] {
@@ -160,6 +170,7 @@ public struct EditorRouteRow: Equatable, Sendable, Identifiable {
 public enum EditorText {
     public static let destinationHint =
         "The app must play to this device. An app that plays to another output sends nothing to the route."
+    public static let tapLimit = "The tap likely has only the channels of the first output stream of the device."
     public static let appNotRunning = "Not running now. The route waits for the app."
     public static let chooseApp = "Choose an app or type a bundle id."
     public static let chooseDevice = "Choose a device."
