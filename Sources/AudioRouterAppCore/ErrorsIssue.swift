@@ -67,6 +67,8 @@ public enum RouteIssueKind: String, Equatable, Sendable, CaseIterable {
     case sampleRateMismatch
     /// Signal on other tap channels than the source pair, or a silent tap next to an active device input.
     case tapChannelMismatch
+    /// No signal on the tap while a device input is active. The wrong buffer, or no capture.
+    case tapSilentDeviceActive
     /// The tap buffer cannot be told from a device input. The route refuses to start.
     case ambiguousTapBuffer
     /// Any other failed start.

@@ -26,13 +26,17 @@ public enum RouteIssues {
             return .appNotRunning
         case .coreAudio(let operation, _):
             return permissionOperation(operation) ? .permissionStartFailed : .startFailed
-        case .ambiguousTapStream, .unprovableTapOrder, .refusedWithDiff:
+        case .ambiguousTapStream, .unprovableTapOrder:
             return .ambiguousTapBuffer
+        case .refusedWithDiff(let reason, _):
+            // The reason is the text of any error `chooseTapBuffers` throws, `unsupportedFormat` too.
+            return kind(ofFailureMessage: reason)
         }
     }
 
-    /// The cause of a failed route. The engine keeps only the text of the error, so this reads the
-    /// text. A test pins every `RouterError` text to `kind(of:)`, so a reworded text fails there.
+    /// The cause of a failed route from the text of its error. Only a fallback: `RouteStatus.startError`
+    /// carries the typed error, and `kind(of:)` reads that. This reads the text for an error that is not
+    /// a `RouterError`. A test pins every `RouterError` text to `kind(of:)`, so a reworded text fails there.
     public static func kind(ofFailureMessage message: String) -> RouteIssueKind {
         if message.hasPrefix("Cannot tell the tap from the input channels of") { return .ambiguousTapBuffer }
         if message.hasPrefix("No audio process with bundle id") { return .appNotRunning }
@@ -53,10 +57,11 @@ public enum RouteIssues {
     /// The issues of one route, the first is the main one. Empty for a route that is off, starting or fine.
     public static func of(_ status: RouteStatus, in snapshot: EngineSnapshot) -> [RouteIssue] {
         let route = status.route
-        guard snapshot.isOn, route.enabled else { return [] }
+        guard snapshot.isOn else { return [] }
         let names = Names(route: route, snapshot: snapshot)
         var issues: [RouteIssue]
-        switch status.state {
+        // A switched off route shows only a failed teardown: that is the likely moment for it.
+        switch route.enabled ? status.state : .disabled {
         case .disabled, .starting:
             issues = []
         case .waitingForDevice:
@@ -70,7 +75,7 @@ public enum RouteIssues {
         case .running(let warnings):
             issues = warnings.map { warning(for: $0, route: route, names: names, snapshot: snapshot) }
         case .failed(let failure):
-            issues = failed(failure, route: route, names: names)
+            issues = failed(failure, startError: status.startError, names: names)
         }
         if !status.teardownFailures.isEmpty {
             let count = status.teardownFailures.count
@@ -79,7 +84,7 @@ public enum RouteIssues {
                     kind: .teardownLeftovers, severity: .warning,
                     message:
                         "\(count) teardown \(count == 1 ? "step" : "steps") failed."
-                        + " A tap or aggregate device likely stays until the app quits.",
+                        + " A tap or aggregate device likely stays until the app quits, the app may stay muted.",
                     action: .none, detail: status.teardownFailures.joined(separator: "; ")))
         }
         return issues
@@ -128,7 +133,7 @@ public enum RouteIssues {
         }
         return RouteIssue(
             kind: .deviceReturning, severity: .warning,
-            message: "\(names.device) is back. The route resumes shortly.", action: .none)
+            message: "\(names.device) is back. The route waits for it to settle and starts again.", action: .none)
     }
 
     // MARK: - Warnings
@@ -139,7 +144,12 @@ public enum RouteIssues {
         switch warning {
         case .noSignal(let texts):
             let detail = texts.joined(separator: "\n")
-            // The tap check texts start with "warning: tap buffer". They mean capture works.
+            // A silent wait that the tap check explains carries a text of `TapCheck.warning`. Signal on
+            // other channels means capture works. A silent tap next to an active device input does not
+            // say that, and `TapCheck.silentWait` adds the permission hint to it, so it keeps the hint.
+            if texts.contains(where: isSilentTapText) {
+                return tapSilentDeviceActive(afterSilence: true, detail: detail)
+            }
             if texts.contains(where: { $0.hasPrefix("warning: tap buffer") }) {
                 return tapChannelMismatch(detail: detail)
             }
@@ -159,6 +169,8 @@ public enum RouteIssues {
                     + " \(names.device). If it plays, the audio capture permission may be missing.",
                 action: .none, detail: detail)
         case .tapCheck(let text):
+            // The tap check after the first signal: capture worked, so the permission is not the cause.
+            if isSilentTapText(text) { return tapSilentDeviceActive(afterSilence: false, detail: text) }
             return tapChannelMismatch(detail: text)
         case .sampleRateMismatch(let tap, let device):
             return RouteIssue(
@@ -167,6 +179,24 @@ public enum RouteIssues {
                     + " The audio is likely affected.",
                 action: .none)
         }
+    }
+
+    /// The text of `TapCheck.warning` for the verdict `tapSilentDeviceActive`. A test builds the real
+    /// text, so a reworded check fails there.
+    private static func isSilentTapText(_ text: String) -> Bool {
+        text.contains("no signal on the tap, but on device input channels")
+    }
+
+    private static func tapSilentDeviceActive(afterSilence: Bool, detail: String) -> RouteIssue {
+        let base = "The tap is silent while a device input is active. The wrong tap buffer was likely picked"
+        if afterSilence {
+            return RouteIssue(
+                kind: .tapSilentDeviceActive, severity: .warning,
+                message: base + ", or the audio capture permission may be missing.",
+                action: .openAudioCaptureSettings, detail: detail)
+        }
+        return RouteIssue(
+            kind: .tapSilentDeviceActive, severity: .warning, message: base + ".", action: .none, detail: detail)
     }
 
     private static func tapChannelMismatch(detail: String) -> RouteIssue {
@@ -178,28 +208,32 @@ public enum RouteIssues {
 
     // MARK: - Failures
 
-    private static func failed(_ failure: RouteFailure, route: Route, names: Names) -> [RouteIssue] {
+    private static func failed(_ failure: RouteFailure, startError: RouterError?, names: Names) -> [RouteIssue] {
         switch failure {
         case .validation(let errors):
             return errors.map { validation($0, names: names) }
         case .startFailed(let message, let attempt, let retryIn):
             let progress = "Attempt \(attempt) failed, retrying in \(seconds(retryIn))."
-            return [startIssue(message: message, progress: progress, names: names)]
+            return [startIssue(message, startError, progress: progress, names: names)]
         case .refused(let message):
-            return [startIssue(message: message, progress: "It is not retried automatically.", names: names)]
+            let progress = "It is not retried automatically."
+            return [startIssue(message, startError, progress: progress, names: names)]
         case .retriesExhausted(let message, let attempts):
             let progress = "It failed \(attempts) times in a row, retries stopped."
-            return [startIssue(message: message, progress: progress, names: names)]
+            return [startIssue(message, startError, progress: progress, names: names)]
         }
     }
 
-    private static func startIssue(message: String, progress: String, names: Names) -> RouteIssue {
-        let kind = kind(ofFailureMessage: message)
+    /// The typed error decides the kind. The text is the fallback for an error of another type.
+    private static func startIssue(
+        _ message: String, _ typed: RouterError?, progress: String, names: Names
+    ) -> RouteIssue {
+        let kind = typed.map { kind(of: $0) } ?? kind(ofFailureMessage: message)
         let cause: String
         var action = RouteAction.retry
         switch kind {
         case .permissionStartFailed:
-            cause = "The route could not start. Likely the audio capture permission is missing or denied."
+            cause = "The route could not start. The audio capture permission may be missing or denied."
             action = .openAudioCaptureSettings
         case .ambiguousTapBuffer:
             cause =

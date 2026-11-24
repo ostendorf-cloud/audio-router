@@ -154,8 +154,10 @@ Nothing active prints the full permission warning only.
     kind, severity, message and one `RouteAction` (`openAudioCaptureSettings`, `retry`, `chooseDevice`, `none`).
     The views in `Sources/AudioRouterApp/Errors*.swift` only show them. `IssueActionRunner` runs the action
     through `SettingsOpening`, so tests use a fake.
-  - The engine keeps only the text of a start error. `RouteIssues.kind(ofFailureMessage:)` reads that text, and a
-    test pins every `RouterError` text to `kind(of:)`. Reword an error text only together with that mapping.
+  - `RouteStatus.startError` carries the typed `RouterError` of a failed start, and `RouteIssues.kind(of:)` reads it.
+    For an error of another type `kind(ofFailureMessage:)` reads the text. A test pins every `RouterError` text to
+    `kind(of:)`. Reword an error text only together with that mapping.
+  - A failed teardown step shows for a switched off route too, and warns on the icon while the global switch is on.
   - A new `RouterError` case, `RouteState`, `RouteFailure` or `RouteWarning` case needs a mapping: the exhaustive
     switches in `ErrorsTests` stop compiling. `Tests/AudioRouterAppTests/Errors/Golden/messages.txt` holds every
     message. Change it with the text, never to make a test pass.

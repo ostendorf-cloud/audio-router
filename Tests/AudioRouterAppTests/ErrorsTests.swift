@@ -26,12 +26,23 @@ private func app(playing: Bool) -> AppGroup {
 
 private func snapshot(
     _ state: RouteState, devices: [DeviceInfo] = [device()], apps: [AppGroup] = [app(playing: true)],
-    teardown: [String] = []
+    teardown: [String] = [], startError: RouterError? = nil, enabled: Bool = true
 ) -> EngineSnapshot {
-    EngineSnapshot(
+    var route = music
+    route.enabled = enabled
+    return EngineSnapshot(
         isOn: true,
-        routes: [RouteStatus(route: music, state: state, meter: nil, teardownFailures: teardown)],
+        routes: [
+            RouteStatus(
+                route: route, state: state, meter: nil, teardownFailures: teardown, startError: startError)
+        ],
         devices: devices, apps: apps)
+}
+
+/// The real texts of the tap check, so a reworded check fails the tests.
+private func tapCheckText(tap: [Int], device: [Int]) -> String {
+    TapCheck.warning(
+        tap: tap, device: device, source: .firstPair, buffer: 1, choice: .streamDiff) ?? "no warning"
 }
 
 private func issues(of snapshot: EngineSnapshot) -> [RouteIssue] {
@@ -105,6 +116,34 @@ private func fixtures() -> [Fixture] {
                     ])))),
         Fixture("teardown failures", snapshot(.running(warnings: []), teardown: ["remove tap", "remove aggregate"])),
         Fixture("teardown failure, one", snapshot(.waitingForApp, teardown: ["remove tap"])),
+        Fixture("teardown failure, route off", snapshot(.disabled, teardown: ["remove tap"], enabled: false)),
+        Fixture(
+            "noSignal, tap silent next to device input",
+            snapshot(.running(warnings: [.noSignal([tapCheckText(tap: [], device: [3]), "short hint"])]))),
+        Fixture(
+            "noSignal, signal outside source",
+            snapshot(.running(warnings: [.noSignal([tapCheckText(tap: [3], device: [])])]))),
+        Fixture(
+            "tapCheck, tap silent next to device input",
+            snapshot(.running(warnings: [.tapCheck(tapCheckText(tap: [], device: [3]))]))),
+        Fixture(
+            "tapCheck, signal outside source",
+            snapshot(.running(warnings: [.tapCheck(tapCheckText(tap: [3], device: []))]))),
+        Fixture(
+            "typed error beats the text",
+            snapshot(
+                .failed(.refused(message: "some other text")),
+                startError: .coreAudio(operation: "AudioHardwareCreateProcessTap (create tap)", status: 1))),
+        Fixture(
+            "usage text that looks like a tap refusal",
+            snapshot(
+                .failed(.refused(message: "Cannot tell the tap from the input channels of X32 (usage text)")),
+                startError: .usage("Cannot tell the tap from the input channels of X32 (usage text)"))),
+        Fixture(
+            "refusedWithDiff, unsupported format",
+            snapshot(
+                .failed(.refused(message: "Unsupported audio format: x\nno new stream")),
+                startError: .refusedWithDiff(reason: "Unsupported audio format: x", diff: "no new stream"))),
     ]
     list.append(
         Fixture(
@@ -152,8 +191,8 @@ private func golden(_ name: String) throws -> String {
 
     @Test func inferredCausesSayLikely() {
         let inferred: Set<RouteIssueKind> = [
-            .permissionSilence, .permissionStartFailed, .appNotPlaying, .deviceGone, .deviceNotResponding,
-            .deviceNotDefault, .sampleRateMismatch, .tapChannelMismatch, .teardownLeftovers,
+            .permissionSilence, .appNotPlaying, .deviceGone, .deviceNotResponding, .deviceNotDefault,
+            .sampleRateMismatch, .tapChannelMismatch, .tapSilentDeviceActive, .teardownLeftovers,
         ]
         for fixture in fixtures() {
             for issue in fixture.issues where inferred.contains(issue.kind) {
@@ -207,42 +246,60 @@ private func golden(_ name: String) throws -> String {
 
 // MARK: - Mapping coverage
 
-private let routerErrorLabels = [
-    "usage", "unknownDevice", "channelsOutOfRange", "noMatchingProcess", "coreAudio", "unsupportedFormat",
-    "ambiguousTapStream", "unprovableTapOrder", "refusedWithDiff", "sessionAlreadyStopped", "teardownFailed",
-]
+/// One value per `RouterError` case. `CaseIterable` drives the samples, and two exhaustive switches keep
+/// both sides complete: `shapeOf` stops compiling for a new `RouterError` case, `samples(for:)` for a
+/// new shape. So no case can lack samples.
+private enum ErrorShape: CaseIterable {
+    case usage, unknownDevice, channelsOutOfRange, noMatchingProcess, coreAudio, unsupportedFormat
+    case ambiguousTapStream, unprovableTapOrder, refusedWithDiff, sessionAlreadyStopped, teardownFailed
+}
 
-/// Exhaustive on purpose: a new `RouterError` case does not compile until it is listed here.
-private func label(_ error: RouterError) -> String {
+private func shapeOf(_ error: RouterError) -> ErrorShape {
     switch error {
-    case .usage: "usage"
-    case .unknownDevice: "unknownDevice"
-    case .channelsOutOfRange: "channelsOutOfRange"
-    case .noMatchingProcess: "noMatchingProcess"
-    case .coreAudio: "coreAudio"
-    case .unsupportedFormat: "unsupportedFormat"
-    case .ambiguousTapStream: "ambiguousTapStream"
-    case .unprovableTapOrder: "unprovableTapOrder"
-    case .refusedWithDiff: "refusedWithDiff"
-    case .sessionAlreadyStopped: "sessionAlreadyStopped"
-    case .teardownFailed: "teardownFailed"
+    case .usage: .usage
+    case .unknownDevice: .unknownDevice
+    case .channelsOutOfRange: .channelsOutOfRange
+    case .noMatchingProcess: .noMatchingProcess
+    case .coreAudio: .coreAudio
+    case .unsupportedFormat: .unsupportedFormat
+    case .ambiguousTapStream: .ambiguousTapStream
+    case .unprovableTapOrder: .unprovableTapOrder
+    case .refusedWithDiff: .refusedWithDiff
+    case .sessionAlreadyStopped: .sessionAlreadyStopped
+    case .teardownFailed: .teardownFailed
     }
 }
 
-private let routerErrors: [RouterError] = [
-    .usage("bad"), .unknownDevice(uid: "dev"), .channelsOutOfRange(first: 3, deviceChannels: 2, deviceName: "X32"),
-    .noMatchingProcess(bundleID: "com.example.music"),
-    .coreAudio(operation: "AudioHardwareCreateProcessTap (create tap)", status: 560_947_818),
-    .coreAudio(operation: "AudioDeviceStart (start IO)", status: -50),
-    .coreAudio(operation: "AudioHardwareCreateAggregateDevice (create aggregate)", status: -50),
-    .unsupportedFormat("x"),
-    .ambiguousTapStream(device: "X32", buffers: [32, 2], tapShape: [2]),
-    .unprovableTapOrder(device: "X32", buffers: [2, 2], tapShape: [2]),
-    .refusedWithDiff(
-        reason: "\(RouterError.ambiguousTapStream(device: "X32", buffers: [2, 2], tapShape: [2]))",
-        diff: "no new stream"),
-    .sessionAlreadyStopped, .teardownFailed(["a", "b"]),
-]
+private let ambiguousSample = RouterError.ambiguousTapStream(device: "X32", buffers: [32, 2], tapShape: [2])
+private let unprovableSample = RouterError.unprovableTapOrder(device: "X32", buffers: [2, 2], tapShape: [2])
+private let unsupportedSample = RouterError.unsupportedFormat("no input buffer of the aggregate device")
+
+private func samples(for shape: ErrorShape) -> [RouterError] {
+    switch shape {
+    case .usage: [.usage("bad")]
+    case .unknownDevice: [.unknownDevice(uid: "dev")]
+    case .channelsOutOfRange: [.channelsOutOfRange(first: 3, deviceChannels: 2, deviceName: "X32")]
+    case .noMatchingProcess: [.noMatchingProcess(bundleID: "com.example.music")]
+    case .coreAudio:
+        [
+            .coreAudio(operation: "AudioHardwareCreateProcessTap (create tap)", status: 560_947_818),
+            .coreAudio(operation: "AudioDeviceStart (start IO)", status: -50),
+            .coreAudio(operation: "AudioHardwareCreateAggregateDevice (create aggregate)", status: -50),
+        ]
+    case .unsupportedFormat: [unsupportedSample]
+    case .ambiguousTapStream: [ambiguousSample]
+    case .unprovableTapOrder: [unprovableSample]
+    case .refusedWithDiff:
+        // The reason is the text of any error `chooseTapBuffers` throws (CoreAudioRoutingBackend).
+        [ambiguousSample, unprovableSample, unsupportedSample].map {
+            .refusedWithDiff(reason: "\($0)", diff: "no new stream")
+        }
+    case .sessionAlreadyStopped: [.sessionAlreadyStopped]
+    case .teardownFailed: [.teardownFailed(["a", "b"])]
+    }
+}
+
+private let routerErrors: [RouterError] = ErrorShape.allCases.flatMap(samples(for:))
 
 /// Exhaustive on purpose, see `label`.
 private func expectsIssue(_ state: RouteState) -> Bool {
@@ -267,15 +324,88 @@ private func warningSamples(_ warning: RouteWarning) -> RouteWarning {
 
 @Suite struct ErrorsCoverageTests {
     @Test func everyRouterErrorCaseHasASample() {
-        #expect(Set(routerErrors.map(label)) == Set(routerErrorLabels))
+        for shape in ErrorShape.allCases {
+            let list = samples(for: shape)
+            #expect(!list.isEmpty, "\(shape)")
+            #expect(list.allSatisfy { shapeOf($0) == shape }, "\(shape)")
+        }
     }
 
     @Test func theTextOfEveryRouterErrorMapsToTheKindOfTheError() {
         for error in routerErrors {
             #expect(
-                RouteIssues.kind(ofFailureMessage: "\(error)") == RouteIssues.kind(of: error),
-                "\(label(error)): \(error)")
+                RouteIssues.kind(ofFailureMessage: "\(error)") == RouteIssues.kind(of: error), "\(error)")
         }
+    }
+
+    @Test func aRefusalWithDiffTakesTheKindOfItsReason() {
+        #expect(RouteIssues.kind(of: .refusedWithDiff(reason: "\(ambiguousSample)", diff: "d")) == .ambiguousTapBuffer)
+        #expect(RouteIssues.kind(of: .refusedWithDiff(reason: "\(unprovableSample)", diff: "d")) == .ambiguousTapBuffer)
+        #expect(RouteIssues.kind(of: .refusedWithDiff(reason: "\(unsupportedSample)", diff: "d")) == .startFailed)
+    }
+
+    @Test func theTypedErrorOfAStatusDecidesTheKind() {
+        // The text says tap refusal, the typed error says usage: the typed error wins.
+        let text = "Cannot tell the tap from the input channels of X32 (usage text)"
+        let shot = snapshot(.failed(.refused(message: text)), startError: .usage(text))
+        #expect(issues(of: shot).map(\.kind) == [.startFailed])
+        // Without a typed error the text decides.
+        let untyped = snapshot(.failed(.refused(message: text)))
+        #expect(issues(of: untyped).map(\.kind) == [.ambiguousTapBuffer])
+    }
+
+    @Test func theTextsOfTheTapCheckMapToTheirKinds() {
+        func kind(_ warning: RouteWarning) -> RouteIssueKind? {
+            issues(of: snapshot(.running(warnings: [warning]))).first?.kind
+        }
+        let silent = tapCheckText(tap: [], device: [3])
+        let outside = tapCheckText(tap: [3], device: [])
+        #expect(kind(.noSignal([silent])) == .tapSilentDeviceActive)
+        #expect(kind(.noSignal([outside])) == .tapChannelMismatch)
+        #expect(kind(.tapCheck(silent)) == .tapSilentDeviceActive)
+        #expect(kind(.tapCheck(outside)) == .tapChannelMismatch)
+    }
+
+    @Test func aSilentTapAfterASilentWaitKeepsThePermissionHint() {
+        let silent = tapCheckText(tap: [], device: [3])
+        let shot = snapshot(.running(warnings: [.noSignal([silent])]))
+        let issue = issues(of: shot)[0]
+        #expect(issue.action == .openAudioCaptureSettings)
+        #expect(issue.message.contains("permission may be missing"))
+        // After a first signal capture worked, so no permission hint.
+        let after = issues(of: snapshot(.running(warnings: [.tapCheck(silent)])))[0]
+        #expect(after.action == .none)
+        #expect(!after.message.contains("permission"))
+    }
+
+    @Test func theStartFailedPermissionTextOnlySaysMay() {
+        let shot = snapshot(
+            .failed(.refused(message: "x")),
+            startError: .coreAudio(operation: "AudioHardwareCreateProcessTap (create tap)", status: 1))
+        let issue = issues(of: shot)[0]
+        #expect(issue.kind == .permissionStartFailed)
+        #expect(issue.message.contains("may be missing"))
+        #expect(!issue.message.lowercased().contains("likely"))
+    }
+
+    @Test func aFailedTeardownOfASwitchedOffRouteShowsAndWarns() {
+        let shot = snapshot(.disabled, teardown: ["remove tap"], enabled: false)
+        #expect(issues(of: shot).map(\.kind) == [.teardownLeftovers])
+        #expect(ShellStatus.of(shot) == .warning)
+        #expect(RouteIssues.worstSeverity(shot) == .warning)
+    }
+
+    @Test func aSwitchedOffRouteWithoutATeardownFailureShowsNothing() {
+        let shot = snapshot(.failed(.refused(message: "x")), enabled: false)
+        #expect(issues(of: shot).isEmpty)
+        #expect(ShellStatus.of(shot) == .running)
+    }
+
+    @Test func globalOffHidesATeardownFailureOfASwitchedOffRoute() {
+        let on = snapshot(.disabled, teardown: ["remove tap"], enabled: false)
+        let off = EngineSnapshot(isOn: false, routes: on.routes, devices: [], apps: [])
+        #expect(ShellStatus.of(off) == .off)
+        #expect(issues(of: off).isEmpty)
     }
 
     @Test func routerErrorKinds() {
