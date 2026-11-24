@@ -23,7 +23,11 @@ The global baseline already applies here and is not repeated below.
     So they are an extension in `ChannelMapperRealTime.swift`, next to `MeterBlock`.
   - Symbols both libraries need are `package`, not `public`.
     `package` keeps them out of the public API. Every target of this package still sees them.
-- `Sources/AudioRouterApp` is the SwiftUI menu bar app. For now a menu bar icon with a Quit item.
+- `Sources/AudioRouterApp` is the SwiftUI menu bar app: `MenuBarExtra`, the menu, the `Settings` scene and the
+  app delegate (activation policy, quit handshake). Only `Shell*.swift` views and wiring, no logic worth a test.
+- `Sources/AudioRouterAppCore` is the testable part of the app: view model, state mapping and the `ShellEngine`
+  seam over `RouteEngine`. An executable target cannot be imported by tests, so this is a library without SwiftUI.
+  `Tests/AudioRouterAppTests` drives it with a fake engine.
 - `Sources/audio-router-proto` is the command line diagnostic tool, not part of a release.
   It wires signals and the real backend, nothing else.
   `Info.plist` next to it is embedded into the binary, see below.
