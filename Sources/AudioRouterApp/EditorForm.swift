@@ -44,6 +44,9 @@ struct EditorForm: View {
                 Picker("App channels", selection: $model.draft.sourceFirst) {
                     ForEach(model.sourcePairChoices, id: \.self) { Text(EditorText.pairLabel($0)).tag($0) }
                 }
+                if let note = model.sourceNote {
+                    Text(note).font(.caption).foregroundStyle(.secondary)
+                }
                 issues(.sourcePair)
             }
             issues(.general)
@@ -60,13 +63,6 @@ struct EditorForm: View {
         }
         .formStyle(.grouped)
         .frame(width: 420)
-        // The device and app lists change while the form is open.
-        .task {
-            while !Task.isCancelled {
-                model.refresh()
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
     }
 
     @ViewBuilder
