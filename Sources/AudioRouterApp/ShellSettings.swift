@@ -9,8 +9,7 @@ struct ShellSettings: View {
     var body: some View {
         Form {
             Section("Routes") {
-                Text("The route editor follows in a later version.")
-                    .foregroundStyle(.secondary)
+                EditorRouteList(model: EditorContext.model)
             }
             LoginItemSection()
             Section("About") {
@@ -18,7 +17,7 @@ struct ShellSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
-        .frame(minHeight: 260)
+        .frame(width: 460)
+        .frame(minHeight: 380)
     }
 }
