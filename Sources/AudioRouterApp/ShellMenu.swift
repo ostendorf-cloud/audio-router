@@ -8,6 +8,7 @@ import SwiftUI
 /// The content of the menu bar menu: global toggle, one row per route, Settings, Quit.
 struct ShellMenu: View {
     let model: ShellViewModel
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Toggle(
@@ -27,9 +28,12 @@ struct ShellMenu: View {
         }
         Divider()
         // An accessory app is not active, so the settings window would open behind other windows.
-        SettingsLink { Text("Settings…") }
-            .keyboardShortcut(",")
-            .simultaneousGesture(TapGesture().onEnded { NSApp.activate() })
+        // A gesture on a SettingsLink does not fire inside a menu, so a button activates the app first.
+        Button("Settings\u{2026}") {
+            NSApp.activate()
+            openSettings()
+        }
+        .keyboardShortcut(",")
         Button("Quit audio-router") {
             NSApplication.shared.terminate(nil)
         }
