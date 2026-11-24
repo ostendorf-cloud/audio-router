@@ -43,7 +43,8 @@ The global baseline already applies here and is not repeated below.
 The Settings toggle registers `SMAppService.mainApp` through the `LoginItemService` protocol.
 `LoginItemViewModel` in `AudioRouterAppCore` maps the four statuses and an error to a toggle and a hint.
 The live service sits in `Sources/AudioRouterApp/LoginItemLive.swift`, because the core has no ServiceManagement import.
-Settings reads the real status on each appear. It only registers the app. Restoring routes is the engine's job.
+Settings reads the real status on each appear and each time the app becomes active, because the Settings window
+is kept on close and `onAppear` may not fire again. It only registers the app. Restoring routes is the engine's job.
 Not verified: the behaviour with the ad hoc build, and from outside `/Applications`.
 
 ## Commands

@@ -1,6 +1,7 @@
 // Copyright 2026 Simon Ostendorf
 // SPDX-License-Identifier: Apache-2.0
 
+import AppKit
 import AudioRouterAppCore
 import SwiftUI
 
@@ -23,5 +24,10 @@ struct LoginItemSection: View {
             }
         }
         .onAppear { model.refresh() }
+        // The Settings window is created once and kept on close, so onAppear may not fire on each open.
+        // The menu activates the app before it opens Settings, so this does.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.refresh()
+        }
     }
 }

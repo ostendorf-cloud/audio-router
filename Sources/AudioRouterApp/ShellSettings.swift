@@ -18,6 +18,7 @@ struct ShellSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420, height: 260)
+        .frame(width: 420)
+        .frame(minHeight: 260)
     }
 }
