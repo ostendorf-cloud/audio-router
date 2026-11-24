@@ -44,6 +44,19 @@ private let video = ShellSamples.video
         #expect(ShellStatus.of(snapshot) == .error)
     }
 
+    @Test func aFailedRouteBeatsWaitingForTheDevice() {
+        let failed = (video, RouteState.failed(.refused(message: "x")))
+        #expect(ShellStatus.of(ShellSamples.snapshot([(music, .waitingForDevice), failed])) == .error)
+        #expect(ShellStatus.of(ShellSamples.snapshot([failed, (music, .waitingForDevice)])) == .error)
+    }
+
+    @Test func aFailedRouteListedAfterAWarningRouteIsStillError() {
+        let snapshot = ShellSamples.snapshot([
+            (music, .running(warnings: [.tapCheck("t")])), (video, .failed(.refused(message: "x"))),
+        ])
+        #expect(ShellStatus.of(snapshot) == .error)
+    }
+
     @Test func aSwitchedOffRouteDoesNotCount() {
         var off = video
         off.enabled = false
@@ -53,6 +66,11 @@ private let video = ShellSamples.video
 
     @Test func aFailedEngineStartIsError() {
         #expect(ShellStatus.of(.empty, startFailed: true) == .error)
+    }
+
+    @Test func globalOffBeatsAFailedEngineStart() {
+        let snapshot = ShellSamples.snapshot(isOn: false, [])
+        #expect(ShellStatus.of(snapshot, startFailed: true) == .off)
     }
 
     @Test func everyStatusHasADistinctSymbol() {

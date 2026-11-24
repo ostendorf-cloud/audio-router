@@ -39,8 +39,8 @@ public enum ShellStatus: Equatable, Sendable {
     /// Maps the engine snapshot to the icon state. Precedence: off, then error, warning, running.
     /// A route that is switched off or waits for its app does not count.
     public static func of(_ snapshot: EngineSnapshot, startFailed: Bool = false) -> ShellStatus {
-        if startFailed { return .error }
         guard snapshot.isOn else { return .off }
+        if startFailed { return .error }
         var worst = ShellStatus.running
         for status in snapshot.routes where status.route.enabled {
             switch ShellRowState.of(status.state) {
