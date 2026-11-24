@@ -76,6 +76,7 @@ public final class ShellViewModel {
 
     /// Global switch. Off returns after every route is down.
     public func setGlobalOn(_ on: Bool) async {
+        guard !shuttingDown else { return }
         let engine = engine
         await blocking { engine.setOn(on) }
         // The observer delivers the same snapshot, possibly later. Reading it here keeps the switch
@@ -85,6 +86,7 @@ public final class ShellViewModel {
 
     /// Switches one route on or off. The engine restarts or tears down that route.
     public func setRouteEnabled(_ id: UUID, _ enabled: Bool) {
+        guard !shuttingDown else { return }
         let routes = engine.snapshot.routes.map { status -> Route in
             var route = status.route
             if route.id == id { route.enabled = enabled }

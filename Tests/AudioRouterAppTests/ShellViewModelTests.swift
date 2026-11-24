@@ -102,4 +102,18 @@ private let video = ShellSamples.video
         #expect(replies == 1)
         #expect(engine.calls == ["stopAll"])
     }
+
+    @Test func togglesAreIgnoredOnceQuitStarted() async {
+        let gate = DispatchSemaphore(value: 0)
+        let engine = FakeShellEngine(snapshot: ShellSamples.snapshot([(music, .running(warnings: []))]), gate: gate)
+        let model = makeModel(engine)
+        var replied = false
+        model.shutdown { replied = true }
+        await model.setGlobalOn(true)
+        model.setRouteEnabled(music.id, false)
+        gate.signal()
+        while !replied { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(engine.calls == ["stopAll"])
+        #expect(engine.routeCalls.isEmpty)
+    }
 }
