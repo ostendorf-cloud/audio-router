@@ -25,7 +25,7 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 /// - engine stopped, global off or route switched off: `disabled`;
 /// - the route does not validate against the devices (`RouteValidator`): `failed(.validation)`;
 ///   an unknown device is not a failure, the route waits in `waitingForDevice`;
-/// - the destination device missing or not alive: `waitingForDevice`;
+/// - the destination device missing, not alive, or left by the default output: `waitingForDevice`;
 /// - no process of the app: `waitingForApp`;
 /// - a permanent failure or exhausted retries: `failed`, see below;
 /// - otherwise the route starts (`starting`) and runs (`running`), or fails and retries with
@@ -48,9 +48,18 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 /// `helperStopped` does not restart the route: the tap keeps the process object of the gone helper,
 /// whether that matters is not measured.
 ///
-/// Device recovery uses the quiet period of the `DeviceModel`: a device that is gone and back within
-/// it reports nothing, a device that comes back later restarts its routes when its batch arrives.
-/// The engine adds no second debounce.
+/// Device loss and recovery (issues 42 and 49): the destination counts as lost when it is gone, no
+/// longer alive, or when the default output moved away from it (the concept's rule). The
+/// `DeviceModel` reports a dead device and a default that moved to another device at once, a
+/// missing device or a read without any default after a short confirm read. The route stops in
+/// the fixed order and releases the tap. The tap mutes the app only while it is read, so the app
+/// plays on the current default output while the route waits in `waitingForDevice`.
+/// The return waits for the quiet period of the model: a device that is back, or the default back
+/// on the destination. A device that is gone and back within it stops its routes at once and
+/// starts them once after the period. The engine adds no second debounce. A default change that
+/// does not leave the destination, for example to the destination itself, leaves the route alone.
+/// A route whose destination is not the default when the engine starts runs: only the default
+/// moving away counts, and a new run forgets it.
 ///
 /// Known limits:
 /// - Several routes at once on one device (two aggregates on one device) are not measured. The
@@ -61,9 +70,8 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 ///   call `stopAll` off the main thread on quit: answer `applicationShouldTerminate` with
 ///   `terminateLater` and reply when `stopAll` returned.
 /// - `observe` handlers run on the engine queue and must not call `start`, `setOn` or `stopAll`.
-/// - Following the default output (the concept's rule that the default output moving away counts as
-///   device lost) is not implemented yet, see issue 42. A route follows the presence of its
-///   destination only.
+/// - A destination that comes back while the default stays elsewhere keeps the route waiting
+///   until the default returns to it.
 /// - The session reports no runtime error of the IO proc, so `running` only leaves through events.
 /// - A flapping device with a failing start retries without end and never reaches
 ///   `retriesExhausted`, because every replug clears the attempt count. The pace is bounded by the
@@ -172,7 +180,11 @@ public final class RouteEngine: @unchecked Sendable {
             devices = model.devices
             apps = [:]
             // A new run is a fresh chance: every held failure, `refused` included, is cleared.
-            for record in records.values { record.clearFailures() }
+            // The devices are read fresh, so a default that moved away in the last run is forgotten.
+            for record in records.values {
+                record.clearFailures()
+                record.awayFromDefault = false
+            }
             validate()
             scheduleReconcile()
             publish()
@@ -287,6 +299,7 @@ public final class RouteEngine: @unchecked Sendable {
                     record.cancelRetry()
                     if record.session != nil { record.needsRestart = true }
                 }
+                if record.route.destinationUID != route.destinationUID { record.awayFromDefault = false }
                 record.route = route
             } else {
                 records[id] = Record(route: route)
@@ -317,8 +330,21 @@ public final class RouteEngine: @unchecked Sendable {
                 if isAlive { clearTransientFailures { $0.destinationUID == uid } }
             case .sampleRateChanged(let uid, _, _), .channelsChanged(let uid, _, _):
                 markRestart { $0.destinationUID == uid }
-            case .defaultOutputChanged:
-                break
+            case .defaultOutputChanged(let from, let to):
+                // Concept and issue 42: the default output moving away from the target counts as
+                // device lost. The app follows the default, so the tap on the target would stay
+                // silent. The default returning to the target is a fresh chance, like a replug.
+                if let from, from != to {
+                    for record in records.values where record.route.destinationUID == from {
+                        record.awayFromDefault = true
+                    }
+                }
+                if let to {
+                    for record in records.values where record.route.destinationUID == to {
+                        record.awayFromDefault = false
+                    }
+                    clearTransientFailures { $0.destinationUID == to }
+                }
             }
         }
         validate()
@@ -400,7 +426,9 @@ public final class RouteEngine: @unchecked Sendable {
         let route = record.route
         guard running, isOn, route.enabled else { return settle(record, .disabled) }
         guard record.validation.isEmpty else { return settle(record, .failed(.validation(record.validation))) }
-        guard let device = devices.first(where: { $0.uid == route.destinationUID && $0.isAlive }) else {
+        guard let device = devices.first(where: { $0.uid == route.destinationUID && $0.isAlive }),
+            !record.awayFromDefault
+        else {
             return settle(record, .waitingForDevice)
         }
         guard let app = apps[route.appBundleID], !app.processes.isEmpty else {
@@ -600,6 +628,10 @@ public final class RouteEngine: @unchecked Sendable {
         /// A failure that stops the retries until the user acts.
         var held: RouteFailure?
         var needsRestart = false
+        /// The default output moved away from the destination and has not come back. The route
+        /// waits in `waitingForDevice` like for a lost device. Cleared by the default returning to
+        /// the destination, a new destination, or a new run.
+        var awayFromDefault = false
         var validation: [RouteValidationError] = []
         var teardownFailures: [String] = []
         // The run state of the current session.

@@ -22,12 +22,13 @@ public struct CoreAudioDeviceMonitor: DeviceMonitoring {
                 let uid = try? CoreAudioProperty.string(id, kAudioDevicePropertyDeviceUID)
             else { return nil }
             let name = (try? CoreAudioProperty.string(id, kAudioObjectPropertyName)) ?? uid
-            let alive: UInt32 =
-                (try? CoreAudioProperty.value(id, kAudioDevicePropertyDeviceIsAlive, initial: UInt32(0))) ?? 0
+            // A failed read is unknown, not dead. `DeviceModel` keeps the last known flag for it.
+            let alive: UInt32? = try? CoreAudioProperty.value(
+                id, kAudioDevicePropertyDeviceIsAlive, initial: UInt32(0))
             return DeviceInfo(
                 uid: uid, name: name, outputChannelsPerStream: channels,
                 nominalSampleRate: CoreAudioProperty.nominalSampleRate(id),
-                isAlive: alive != 0, isDefaultOutput: id == defaultID)
+                isAlive: (alive ?? 0) != 0, isDefaultOutput: id == defaultID, isAliveKnown: alive != nil)
         }
     }
 
