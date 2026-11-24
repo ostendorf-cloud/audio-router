@@ -131,6 +131,9 @@ Nothing active prints the full permission warning only.
     paraphrased in line 439). An app that follows the default sends nothing to the destination.
     The hardware checklist verifies that the app is audible on the new default after the move.
   - A destination that is back while the default stays elsewhere keeps the route waiting.
+  - The rule assumes every app follows the default output. An app with its own output device
+    (concept line 13), for example a DAW set to the X32 while the default is elsewhere, loses a
+    working route when the default leaves the X32.
   - A device that stays listed but whose alive read always fails keeps its last flag forever.
     Its route then stays `running` in silence.
     A real unplug most likely leaves the list. Not verified.

@@ -223,6 +223,59 @@ private let headphones = "headphones-uid"
         #expect(rig.state(a) == .waitingForDevice)
     }
 
+    @Test func aNewRunForgetsThatTheDefaultMovedAway() throws {
+        let backend = FakeBackend()
+        let rig = makeRig(backend, devices: [mixer(isDefault: true), output(speakers, isDefault: false)])
+        try rig.run([a])
+        signal(rig, [mixer(), output(speakers, isDefault: true)], .defaultOutput)
+        #expect(rig.state(a) == .waitingForDevice)
+        rig.engine.stopAll()
+        // The mixer is the default again before the new run. The new run reads it as its baseline,
+        // so no default change arrives that could clear the mark.
+        rig.deviceMonitor.set([mixer(isDefault: true), output(speakers, isDefault: false)])
+        try rig.engine.start()
+        rig.engine.waitUntilIdle()
+        #expect(rig.state(a) == .running(warnings: []))
+        #expect(backend.calls == Self.create + Self.teardown + Self.create)
+    }
+
+    @Test func aNewDestinationForgetsThatTheDefaultMovedAway() throws {
+        let rig = EngineRig(devices: [mixer(isDefault: true), output("other-uid", isDefault: false, channels: [8])])
+        try rig.run([a])
+        signal(rig, [mixer(), output("other-uid", isDefault: true, channels: [8])], .defaultOutput)
+        rig.deviceClock.advance(by: 5)
+        rig.engine.waitUntilIdle()
+        #expect(rig.state(a) == .waitingForDevice)
+        // The route moves to the device that is the default now. It must not inherit the mark.
+        let moved = EngineSamples.route("a", number: 1, pair: 3, device: "other-uid")
+        rig.setRoutes([moved])
+        #expect(rig.state(moved) == .running(warnings: []))
+        #expect(rig.log == ["start a 101,102", "stop a", "start a 101,102"])
+    }
+
+    @Test func aDefaultFlipAwayAndBackWithinTheQuietPeriodStopsOnceAndStartsOnce() throws {
+        // The X32 is the default, the AirPods take it for half a second, then the X32 again.
+        let backend = FakeBackend()
+        let rig = makeRig(backend, devices: [mixer(isDefault: true), output(headphones, isDefault: false)])
+        try rig.run([a])
+        signal(rig, [mixer(), output(headphones, isDefault: true)], .defaultOutput)
+        #expect(backend.calls == Self.create + Self.teardown)
+        rig.deviceClock.advance(by: 0.5)
+        signal(rig, [mixer(isDefault: true), output(headphones, isDefault: false)], .defaultOutput)
+        rig.deviceClock.advance(by: EngineRig.debounce - 0.1)
+        rig.engine.waitUntilIdle()
+        #expect(rig.state(a) == .waitingForDevice)
+        rig.deviceClock.advance(by: 0.1)
+        rig.engine.waitUntilIdle()
+        #expect(rig.state(a) == .running(warnings: []))
+        // No stale mark and no second start later.
+        rig.deviceClock.advance(by: 5)
+        rig.engine.waitUntilIdle()
+        rig.advance(seconds: 3)
+        #expect(rig.state(a) == .running(warnings: []))
+        #expect(backend.calls == Self.create + Self.teardown + Self.create)
+    }
+
     @Test func aLossWhileAStopStepFailsStillReleasesTheTap() throws {
         // A device that vanished may refuse to stop its IO. The tap must go anyway, so the app
         // is not muted by a tap that nobody reads.
