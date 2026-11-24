@@ -234,16 +234,82 @@ struct DeviceModelTests {
         #expect(rig.model.devices.map(\.uid) == ["uid-a"])
     }
 
-    @Test func aFlapWithinTheQuietPeriodReportsNothing() throws {
+    @Test func aLostDeviceIsReportedAtOnce() throws {
+        let rig = Rig([device("uid-a"), device("uid-b", isDefault: true)])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a")])
+        rig.monitor.emit(.deviceList)
+        // No time passed. The whole difference goes out with the loss.
+        #expect(
+            rig.recorder.batches == [
+                [.removed(device("uid-b", isDefault: true)), .defaultOutputChanged(from: "uid-b", to: nil)]
+            ])
+        #expect(rig.model.devices.map(\.uid) == ["uid-a"])
+        rig.clock.advance(by: 5)
+        #expect(rig.recorder.batches.count == 1)
+    }
+
+    @Test func aDeviceThatIsNoLongerAliveIsReportedAtOnce() throws {
+        let rig = Rig([device("uid-a")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a", alive: false)])
+        rig.monitor.emit(.alive)
+        #expect(rig.recorder.batches == [[.aliveChanged(uid: "uid-a", isAlive: false)]])
+        rig.clock.advance(by: 5)
+        #expect(rig.recorder.batches.count == 1)
+    }
+
+    @Test func aChangeWithoutALossWaitsForTheQuietPeriod() throws {
+        let rig = Rig([device("uid-a", isDefault: true), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a"), device("uid-b", isDefault: true), device("uid-c")])
+        rig.monitor.emit(.deviceList)
+        rig.monitor.emit(.defaultOutput)
+        rig.monitor.emit(.alive)
+        #expect(rig.recorder.batches.isEmpty)
+        rig.clock.advance(by: 1.5)
+        #expect(
+            rig.recorder.batches == [[.added(device("uid-c")), .defaultOutputChanged(from: "uid-a", to: "uid-b")]])
+    }
+
+    @Test func aFlapReportsTheLossAtOnceAndTheReturnAfterTheQuietPeriod() throws {
         let rig = Rig([device("uid-a"), device("uid-b")])
         _ = try rig.start()
         rig.monitor.set([device("uid-a")])
         rig.monitor.emit(.deviceList)
+        #expect(rig.recorder.batches == [[.removed(device("uid-b"))]])
         rig.clock.advance(by: 0.5)
         rig.monitor.set([device("uid-a"), device("uid-b")])
         rig.monitor.emit(.deviceList)
-        rig.clock.advance(by: 5)
-        #expect(rig.recorder.batches.isEmpty)
+        rig.clock.advance(by: 1.4)
+        #expect(rig.recorder.batches.count == 1)
+        rig.clock.advance(by: 0.1)
+        #expect(rig.recorder.batches == [[.removed(device("uid-b"))], [.added(device("uid-b"))]])
+    }
+
+    @Test func aLossFoundWhileNoTimerRunsStillGetsASettle() throws {
+        // The quiet period of the signal ended while the loss was read. Its settle saw the old list,
+        // so the model starts a new period: a device that is back by then is reported.
+        let rig = Rig([device("uid-a"), device("uid-b")])
+        _ = try rig.start()
+        let monitor = rig.monitor
+        let clock = rig.clock
+        let once = Once()
+        // The read of the loss sees the list without uid-b. Right after it uid-b is back and the
+        // quiet period ends: that settle finds nothing new against the old list.
+        monitor.onSnapshot {
+            if once.first() {
+                monitor.set([device("uid-a"), device("uid-b")])
+                clock.advance(by: 1.5)
+            }
+        }
+        monitor.set([device("uid-a")])
+        monitor.emit(.deviceList)
+        monitor.onSnapshot(nil)
+        #expect(rig.recorder.batches == [[.removed(device("uid-b"))]])
+        #expect(clock.pendingCount == 1)
+        clock.advance(by: 1.5)
+        #expect(rig.recorder.batches == [[.removed(device("uid-b"))], [.added(device("uid-b"))]])
     }
 
     @Test func aStormGivesOneBatchAfterTheLastSignal() throws {
@@ -335,7 +401,7 @@ struct DeviceModelTests {
     @Test func theQuietPeriodIsConfigurable() throws {
         let rig = Rig([device("uid-a")], debounce: 2.0)
         _ = try rig.start()
-        rig.monitor.set([])
+        rig.monitor.set([device("uid-a"), device("uid-b")])
         rig.monitor.emit(.deviceList)
         #expect(rig.clock.requestedDelays == [2.0])
         rig.clock.advance(by: 1.9)
@@ -352,7 +418,8 @@ struct DeviceModelTests {
         let rig = Rig([device("uid-a")])
         let handle = try rig.start()
         #expect(rig.monitor.isObserved)
-        rig.monitor.set([])
+        // An added device, because a loss would be reported at once.
+        rig.monitor.set([device("uid-a"), device("uid-b")])
         rig.monitor.emit(.deviceList)
         #expect(rig.clock.pendingCount == 1)
         handle.cancel()
@@ -401,7 +468,10 @@ struct DeviceModelTests {
     @Test func aChangeWhileTheBaselineIsReadLeadsToOneBatch() throws {
         let rig = Rig([device("uid-a")])
         let monitor = rig.monitor
+        // Once: a signal now reads the devices again, and a hook that signals on every read loops.
+        let once = Once()
         monitor.onSnapshot {
+            guard once.first() else { return }
             monitor.set([device("uid-a"), device("uid-b")])
             monitor.emit(.deviceList)
         }
@@ -453,7 +523,8 @@ struct DeviceModelTests {
         first.cancel()
         _ = try rig.start()
         rig.clock.advance(by: 1.0)
-        rig.monitor.set([])
+        // An added device, because a loss would be reported at once.
+        rig.monitor.set([device("uid-a"), device("uid-b")])
         rig.monitor.emit(.deviceList)
         #expect(rig.clock.pendingCount == 2)
         rig.clock.advance(by: 0.6)
@@ -488,7 +559,8 @@ struct DeviceModelTests {
         let once = Once()
         monitor.set([device("uid-a"), device("uid-b")])
         monitor.onSnapshot { if once.first() { monitor.emit(.alive) } }
-        monitor.emit(.deviceList)
+        // A signal that reads nothing at once, so the first read is the one after the quiet period.
+        monitor.emit(.sampleRate)
         rig.clock.advance(by: 1.5)
         #expect(rig.recorder.batches == [[.added(device("uid-b"))]])
         #expect(rig.clock.pendingCount == 1)

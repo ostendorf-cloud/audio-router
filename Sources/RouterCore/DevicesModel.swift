@@ -64,6 +64,16 @@ public enum DeviceChange: Equatable, Sendable {
     case aliveChanged(uid: String, isAlive: Bool)
     case channelsChanged(uid: String, from: [Int], to: [Int])
 
+    /// True when a device went away or stopped being alive. `DeviceModel` reports a batch with
+    /// such a change at once instead of after the quiet period.
+    public var isLoss: Bool {
+        switch self {
+        case .removed: true
+        case .aliveChanged(_, let isAlive): !isAlive
+        case .added, .defaultOutputChanged, .sampleRateChanged, .channelsChanged: false
+        }
+    }
+
     /// The changes from `old` to `new`, ordered: removed, added, then per device by uid. A name
     /// change alone is not a change. Empty when the two lists describe the same state.
     public static func diff(old: [DeviceInfo], new: [DeviceInfo]) -> [DeviceChange] {

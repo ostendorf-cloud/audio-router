@@ -48,9 +48,12 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 /// `helperStopped` does not restart the route: the tap keeps the process object of the gone helper,
 /// whether that matters is not measured.
 ///
-/// Device recovery uses the quiet period of the `DeviceModel`: a device that is gone and back within
-/// it reports nothing, a device that comes back later restarts its routes when its batch arrives.
-/// The engine adds no second debounce.
+/// Device loss and recovery (issue 49): the `DeviceModel` reports a lost or dead device at once, so
+/// the route stops in the fixed order and releases the tap. The tap mutes the app only while it is
+/// read, so the app plays on its default output again while the route waits in `waitingForDevice`.
+/// The return waits for the quiet period of the model: a device that is gone and back within it
+/// stops its routes at once and starts them once after the period. The engine adds no second
+/// debounce. A change of the default output alone neither stops nor restarts a route.
 ///
 /// Known limits:
 /// - Several routes at once on one device (two aggregates on one device) are not measured. The
@@ -61,9 +64,11 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 ///   call `stopAll` off the main thread on quit: answer `applicationShouldTerminate` with
 ///   `terminateLater` and reply when `stopAll` returned.
 /// - `observe` handlers run on the engine queue and must not call `start`, `setOn` or `stopAll`.
-/// - Following the default output (the concept's rule that the default output moving away counts as
-///   device lost) is not implemented yet, see issue 42. A route follows the presence of its
-///   destination only.
+/// - A route follows the presence of its destination only, never the default output (issue 49).
+///   The concept's rule that the default output moving away counts as device lost (issue 42)
+///   conflicts with that and is open. A device stream tap only captures audio that goes to its
+///   device, so whether the app still reaches the route after the default moved away is a
+///   hardware question.
 /// - The session reports no runtime error of the IO proc, so `running` only leaves through events.
 /// - A flapping device with a failing start retries without end and never reaches
 ///   `retriesExhausted`, because every replug clears the attempt count. The pace is bounded by the
@@ -318,6 +323,7 @@ public final class RouteEngine: @unchecked Sendable {
             case .sampleRateChanged(let uid, _, _), .channelsChanged(let uid, _, _):
                 markRestart { $0.destinationUID == uid }
             case .defaultOutputChanged:
+                // Issue 49: a running route keeps its session and its tap.
                 break
             }
         }

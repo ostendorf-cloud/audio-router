@@ -40,17 +40,21 @@ private func entered(_ gate: Gate) -> Bool {
         #expect(rig.state(a) == .running(warnings: []))
     }
 
-    @Test func aDeviceFlapWithinTheQuietPeriodChangesNothing() throws {
+    @Test func aDeviceFlapWithinTheQuietPeriodStopsAtOnceAndStartsOnce() throws {
+        // The session on the device that went away is dead, even when the device is back within
+        // the quiet period. The loss stops it at once, the return starts it after the period.
         let rig = EngineRig()
         try rig.run([a])
         rig.deviceMonitor.set([])
         rig.deviceMonitor.emit(.deviceList)
+        rig.engine.waitUntilIdle()
+        #expect(rig.log == ["start a 101,102", "stop a"])
         rig.deviceClock.advance(by: 1.0)
         rig.deviceMonitor.set([mixer])
         rig.deviceMonitor.emit(.deviceList)
         rig.deviceClock.advance(by: EngineRig.debounce)
         rig.engine.waitUntilIdle()
-        #expect(rig.log == ["start a 101,102"])
+        #expect(rig.log == ["start a 101,102", "stop a", "start a 101,102"])
         #expect(rig.state(a) == .running(warnings: []))
     }
 

@@ -38,8 +38,13 @@ public enum DeviceModelError: Error, Equatable, Sendable {
 /// One live model of the output devices with debounced change events.
 ///
 /// Raw signals from a `DeviceMonitoring` restart a quiet period. When it ends, the model reads a
-/// new snapshot and reports the difference to the last reported one. A device that flaps within
-/// the period, gone and back with the same state, reports nothing.
+/// new snapshot and reports the difference to the last reported one.
+///
+/// A loss does not wait: a device list or alive signal reads the devices at once, and when a known
+/// device is gone or no longer alive the whole difference goes out right away (issue 49). A route on
+/// a lost device holds the tap and keeps the app muted until it stops. The way back waits for the
+/// quiet period, so a device that flaps within it reports the loss at once and the return once
+/// after the period. A sample rate, channel or default output change alone waits as well.
 ///
 /// One model has exactly one consumer: `start` throws `DeviceModelError.alreadyRunning` while it
 /// runs. Several consumers, such as the engine and the UI, need a fan out layer above the model:
@@ -103,7 +108,7 @@ public final class DeviceModel: @unchecked Sendable {
         }
         let observer: any Cancellable
         do {
-            observer = try monitor.observe { [weak self] _ in self?.signal(id) }
+            observer = try monitor.observe { [weak self] kind in self?.signal(id, kind) }
         } catch {
             stop(id)
             throw error
@@ -125,15 +130,40 @@ public final class DeviceModel: @unchecked Sendable {
         return Stop(model: self, id: id)
     }
 
-    private func signal(_ id: Int) {
-        lock.withLock {
-            guard running, generation == id else { return }
+    private func signal(_ id: Int, _ kind: DeviceSignal) {
+        let isReady: Bool = lock.withLock {
+            guard running, generation == id else { return false }
             if ready {
                 scheduleLocked(id)
             } else {
                 dirty = true
             }
+            return ready
         }
+        // Only the device list and the alive flag can lose a device.
+        guard isReady, kind == .deviceList || kind == .alive else { return }
+        reportLoss(id)
+    }
+
+    /// Reads the devices at once and reports the whole difference when a known device is gone or
+    /// no longer alive. A lost device must not wait for the quiet period: a route on it still holds
+    /// the tap, and the app stays muted until the route stops. A return or any other change waits
+    /// for the quiet period as before, so a flap stops a route at once and starts it once after.
+    private func reportLoss(_ id: Int) {
+        // A failed read reports nothing. The quiet period that the signal started tries again.
+        guard let fresh = try? monitor.snapshot() else { return }
+        let batch: (changes: [DeviceChange], handler: (@Sendable ([DeviceChange]) -> Void)?)? = lock.withLock {
+            guard running, ready, generation == id else { return nil }
+            let merged = Self.keepingKnownRates(old: known, new: fresh)
+            let changes = DeviceChange.diff(old: known, new: merged)
+            guard changes.contains(where: \.isLoss) else { return nil }
+            known = merged
+            // The quiet period may have ended while the devices were read, with a settle that saw
+            // the older list. A new period makes sure a device that is back by now is reported.
+            if pendingToken == nil { scheduleLocked(id) }
+            return (changes, handler)
+        }
+        if let batch { batch.handler?(batch.changes) }
     }
 
     /// Restarts the quiet period. The caller holds the lock.
