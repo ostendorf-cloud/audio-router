@@ -94,12 +94,19 @@ public struct RouteStatus: Equatable, Sendable {
     /// The steps that failed in the last teardown of this route, empty when it went clean. A failed
     /// step can leave a tap or an aggregate device behind until the process exits.
     public let teardownFailures: [String]
+    /// The typed error of the failed start behind `failed(.startFailed)`, `.refused` and
+    /// `.retriesExhausted`. Nil for any other state and for an error that is not a `RouterError`.
+    public let startError: RouterError?
 
-    public init(route: Route, state: RouteState, meter: MeterReading?, teardownFailures: [String]) {
+    public init(
+        route: Route, state: RouteState, meter: MeterReading?, teardownFailures: [String],
+        startError: RouterError? = nil
+    ) {
         self.route = route
         self.state = state
         self.meter = meter
         self.teardownFailures = teardownFailures
+        self.startError = startError
     }
 }
 
