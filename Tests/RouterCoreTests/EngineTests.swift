@@ -262,18 +262,26 @@ private func transient(_ status: Int32 = 1) -> RouterError {
         #expect(rig.state(a) == .running(warnings: []))
     }
 
-    @Test func meterReadingsArePublished() throws {
+    @Test func meterReadingsComeFromRunningRoutesOnly() throws {
         let rig = EngineRig()
         let reading = MeterReading(
             input: LevelReading(peak: 0.5, rms: 0.25, samples: 96000),
             output: LevelReading(peak: 0.5, rms: 0.25, samples: 96000), frames: 48000)
         rig.maker.update { $0.meter = reading }
+        #expect(rig.engine.meterReadings().isEmpty)
         try rig.run([a])
-        #expect(rig.engine.snapshot.status(of: a.id)?.meter == nil)
-        rig.advance(seconds: 1)
-        #expect(rig.engine.snapshot.status(of: a.id)?.meter == reading)
+        #expect(rig.engine.meterReadings() == [a.id: reading])
         rig.emit(.appQuit(bundleID: EngineSamples.playerID))
-        #expect(rig.engine.snapshot.status(of: a.id)?.meter == nil)
+        #expect(rig.engine.meterReadings().isEmpty)
+    }
+
+    @Test func theEnginePollReadsNoMeter() throws {
+        let rig = EngineRig()
+        try rig.run([a])
+        rig.advance(seconds: 5)
+        #expect(rig.maker.log.count("meter") == 0)
+        _ = rig.engine.meterReadings()
+        #expect(rig.maker.log.count("meter") == 1)
     }
 
     @Test func observersGetEveryChangeUntilTheyCancel() throws {

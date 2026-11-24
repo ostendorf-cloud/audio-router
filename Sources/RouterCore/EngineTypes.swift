@@ -89,16 +89,13 @@ public enum StartErrorClass: Equatable, Sendable {
 public struct RouteStatus: Equatable, Sendable {
     public let route: Route
     public let state: RouteState
-    /// The levels of the last full interval while the route runs, nil otherwise or while priming.
-    public let meter: MeterReading?
     /// The steps that failed in the last teardown of this route, empty when it went clean. A failed
     /// step can leave a tap or an aggregate device behind until the process exits.
     public let teardownFailures: [String]
 
-    public init(route: Route, state: RouteState, meter: MeterReading?, teardownFailures: [String]) {
+    public init(route: Route, state: RouteState, teardownFailures: [String]) {
         self.route = route
         self.state = state
-        self.meter = meter
         self.teardownFailures = teardownFailures
     }
 }
