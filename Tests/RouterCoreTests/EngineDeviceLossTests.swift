@@ -21,8 +21,8 @@ private func mixer(isDefault: Bool = false, alive: Bool = true) -> DeviceInfo {
 private let speakers = "speakers-uid"
 private let headphones = "headphones-uid"
 
-/// Issue 49: a lost destination must let the app play on its default output at once, a returned one
-/// must bring the route back by itself, and a default output change must leave the route alone.
+/// Issues 42 and 49: a destination that is gone, dead or left by the default output must let the
+/// app play on the current default at once, and its return must bring the route back by itself.
 /// The real `RouteSession` runs on the fake backend, so every Core Audio step is visible.
 @Suite struct EngineDeviceLossTests {
     private static let create = ["createTap 101,102", "createAggregate mixer-uid tap-uid", "startIO 20 3,4"]
@@ -37,7 +37,7 @@ private let headphones = "headphones-uid"
     }
 
     /// Plays a raw signal and lets the engine work. A device list signal also lets the short read
-    /// that confirms a missing device pass, never the quiet period. An alive signal lets no time pass.
+    /// that confirms a missing device pass, never the quiet period. Other signals let no time pass.
     private func signal(_ rig: EngineRig, _ devices: [DeviceInfo], _ kind: DeviceSignal = .deviceList) {
         rig.deviceMonitor.set(devices)
         rig.deviceMonitor.emit(kind)
@@ -125,23 +125,102 @@ private let headphones = "headphones-uid"
         #expect(rig.state(a) == .running(warnings: []))
     }
 
-    @Test func aDefaultOutputChangeLeavesTheRouteAndItsTapAlone() throws {
+    @Test func theDefaultMovingAwayFromTheTargetStopsTheRouteAtOnce() throws {
+        // Concept and issue 42: the mixer is the default, then headphones connect and macOS makes
+        // them the default. The app follows the default, so the target counts as lost. The tap is
+        // released and the app plays on the headphones.
         let backend = FakeBackend()
-        // The mixer is the default output, then headphones connect and macOS makes them the default.
         let rig = makeRig(backend, devices: [mixer(isDefault: true), output(speakers, isDefault: false)])
         try rig.run([a])
-        rig.deviceMonitor.set([mixer(), output(speakers, isDefault: false), output(headphones, isDefault: true)])
-        rig.deviceMonitor.emit(.deviceList)
-        rig.deviceMonitor.emit(.defaultOutput)
+        signal(
+            rig, [mixer(), output(speakers, isDefault: false), output(headphones, isDefault: true)], .defaultOutput)
+        // No time passed on the device model.
+        #expect(backend.calls == Self.create + Self.teardown)
+        #expect(rig.state(a) == .waitingForDevice)
+        // The new default arrives after the quiet period and changes nothing for the route.
         rig.deviceClock.advance(by: EngineRig.debounce)
         rig.engine.waitUntilIdle()
         #expect(rig.model.defaultOutput?.uid == headphones)
-        // Then the default moves to the speakers and back to the mixer.
-        rig.devices([mixer(), output(speakers, isDefault: true), output(headphones, isDefault: false)])
-        rig.devices([mixer(isDefault: true), output(speakers, isDefault: false), output(headphones, isDefault: false)])
+        #expect(backend.calls == Self.create + Self.teardown)
+        #expect(rig.state(a) == .waitingForDevice)
+    }
+
+    @Test func theDefaultReturningToTheTargetStartsTheRouteAfterTheQuietPeriod() throws {
+        let backend = FakeBackend()
+        let rig = makeRig(backend, devices: [mixer(isDefault: true), output(speakers, isDefault: false)])
+        try rig.run([a])
+        signal(rig, [mixer(), output(speakers, isDefault: true)], .defaultOutput)
+        rig.deviceClock.advance(by: 5)
+        rig.engine.waitUntilIdle()
+        #expect(rig.state(a) == .waitingForDevice)
+        signal(rig, [mixer(isDefault: true), output(speakers, isDefault: false)], .defaultOutput)
+        rig.deviceClock.advance(by: EngineRig.debounce - 0.1)
+        rig.engine.waitUntilIdle()
+        #expect(rig.state(a) == .waitingForDevice)
+        rig.deviceClock.advance(by: 0.1)
+        rig.engine.waitUntilIdle()
+        #expect(rig.state(a) == .running(warnings: []))
+        #expect(backend.calls == Self.create + Self.teardown + Self.create)
+    }
+
+    @Test func aDefaultChangeThatDoesNotLeaveTheTargetKeepsTheRoute() throws {
+        // The route runs while the speakers are the default. The default moves to the headphones,
+        // then to the mixer itself. Neither leaves the target.
+        let backend = FakeBackend()
+        let rig = makeRig(backend, devices: [mixer(), output(speakers, isDefault: true)])
+        try rig.run([a])
+        signal(rig, [mixer(), output(speakers, isDefault: false), output(headphones, isDefault: true)], .defaultOutput)
+        signal(rig, [mixer(isDefault: true), output(speakers, isDefault: false), output(headphones, isDefault: false)])
+        rig.deviceClock.advance(by: 5)
+        rig.engine.waitUntilIdle()
         rig.advance(seconds: 3)
         #expect(backend.calls == Self.create)
         #expect(rig.state(a) == .running(warnings: []))
+    }
+
+    @Test func aDefaultMovingAwayStopsOnlyTheRouteOnThatTarget() throws {
+        let other = EngineSamples.route("b", number: 2, pair: 5, app: EngineSamples.otherID, device: "other-uid")
+        let rig = EngineRig(
+            devices: [mixer(isDefault: true), output("other-uid", isDefault: false, channels: [8])],
+            apps: [EngineSamples.player, EngineSamples.other])
+        try rig.run([a, other])
+        #expect(rig.log == ["start a 101,102", "start b 201"])
+        signal(rig, [mixer(), output("other-uid", isDefault: true, channels: [8])], .defaultOutput)
+        #expect(rig.log == ["start a 101,102", "start b 201", "stop a"])
+        #expect(rig.state(a) == .waitingForDevice)
+        #expect(rig.state(other) == .running(warnings: []))
+    }
+
+    @Test func anUnplugThatAlsoMovesTheDefaultTearsDownOnce() throws {
+        // The X32 case: the mixer goes away and macOS makes the speakers the default.
+        let backend = FakeBackend()
+        let rig = makeRig(backend, devices: [mixer(isDefault: true), output(speakers, isDefault: false)])
+        try rig.run([a])
+        rig.deviceMonitor.set([output(speakers, isDefault: true)])
+        rig.deviceMonitor.emit(.deviceList)
+        rig.deviceMonitor.emit(.defaultOutput)
+        rig.deviceClock.advance(by: 5)
+        rig.engine.waitUntilIdle()
+        #expect(backend.calls == Self.create + Self.teardown)
+        #expect(rig.state(a) == .waitingForDevice)
+        // Plugged in again and the default again: one start after the quiet period.
+        signal(rig, [mixer(isDefault: true), output(speakers, isDefault: false)])
+        rig.deviceClock.advance(by: EngineRig.debounce)
+        rig.engine.waitUntilIdle()
+        #expect(backend.calls == Self.create + Self.teardown + Self.create)
+        #expect(rig.state(a) == .running(warnings: []))
+    }
+
+    @Test func aTargetThatIsBackButNotTheDefaultKeepsWaiting() throws {
+        let backend = FakeBackend()
+        let rig = makeRig(backend, devices: [mixer(isDefault: true), output(speakers, isDefault: false)])
+        try rig.run([a])
+        signal(rig, [output(speakers, isDefault: true)])
+        signal(rig, [mixer(), output(speakers, isDefault: true)])
+        rig.deviceClock.advance(by: 5)
+        rig.engine.waitUntilIdle()
+        #expect(backend.calls == Self.create + Self.teardown)
+        #expect(rig.state(a) == .waitingForDevice)
     }
 
     @Test func aLossWhileAStopStepFailsStillReleasesTheTap() throws {

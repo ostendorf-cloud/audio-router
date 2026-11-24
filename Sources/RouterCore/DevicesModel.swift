@@ -68,13 +68,14 @@ public enum DeviceChange: Equatable, Sendable {
     case aliveChanged(uid: String, isAlive: Bool)
     case channelsChanged(uid: String, from: [Int], to: [Int])
 
-    /// True when a device went away or stopped being alive. `DeviceModel` reports a batch with
-    /// such a change at once instead of after the quiet period.
+    /// True when a device went away, stopped being alive or stopped being the default output.
+    /// `DeviceModel` reports such a change at once instead of after the quiet period.
     public var isLoss: Bool {
         switch self {
         case .removed: true
         case .aliveChanged(_, let isAlive): !isAlive
-        case .added, .defaultOutputChanged, .sampleRateChanged, .channelsChanged: false
+        case .defaultOutputChanged(let from, _): from != nil
+        case .added, .sampleRateChanged, .channelsChanged: false
         }
     }
 

@@ -316,16 +316,63 @@ struct DeviceModelTests {
     }
 
     @Test func aChangeWithoutALossWaitsForTheQuietPeriod() throws {
-        let rig = Rig([device("uid-a", isDefault: true), device("uid-b")])
+        let rig = Rig([device("uid-a"), device("uid-b")])
         _ = try rig.start()
-        rig.monitor.set([device("uid-a"), device("uid-b", isDefault: true), device("uid-c")])
+        // A first default output, a new device and a new rate: nothing is lost.
+        rig.monitor.set([device("uid-a", rate: 44100), device("uid-b", isDefault: true), device("uid-c")])
         rig.monitor.emit(.deviceList)
         rig.monitor.emit(.defaultOutput)
         rig.monitor.emit(.alive)
         #expect(rig.recorder.batches.isEmpty)
         rig.clock.advance(by: 1.5)
         #expect(
-            rig.recorder.batches == [[.added(device("uid-c")), .defaultOutputChanged(from: "uid-a", to: "uid-b")]])
+            rig.recorder.batches == [
+                [
+                    .added(device("uid-c")), .defaultOutputChanged(from: nil, to: "uid-b"),
+                    .sampleRateChanged(uid: "uid-a", from: 48000, to: 44100),
+                ]
+            ])
+    }
+
+    @Test func theDefaultLeavingADeviceIsReportedAtOnceAndTheNewDefaultAfterTheQuietPeriod() throws {
+        // The old default loses its role at once, like a lost device. The new default is a gain
+        // and waits, like an added device.
+        let rig = Rig([device("uid-a", isDefault: true), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a"), device("uid-b", isDefault: true)])
+        rig.monitor.emit(.defaultOutput)
+        #expect(rig.recorder.batches == [[.defaultOutputChanged(from: "uid-a", to: nil)]])
+        #expect(rig.model.defaultOutput == nil)
+        rig.clock.advance(by: 1.4)
+        #expect(rig.recorder.batches.count == 1)
+        rig.clock.advance(by: 0.1)
+        #expect(
+            rig.recorder.batches == [
+                [.defaultOutputChanged(from: "uid-a", to: nil)], [.defaultOutputChanged(from: nil, to: "uid-b")],
+            ])
+        #expect(rig.model.defaultOutput?.uid == "uid-b")
+    }
+
+    @Test func aReadWithoutAnyDefaultIsConfirmedFirst() throws {
+        // No default at all can be a read in the middle of a switch. It waits for the confirm read.
+        let rig = Rig([device("uid-a", isDefault: true), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a"), device("uid-b")])
+        rig.monitor.emit(.defaultOutput)
+        rig.monitor.set([device("uid-a"), device("uid-b", isDefault: true)])
+        #expect(rig.recorder.batches.isEmpty)
+        rig.clock.advance(by: confirmDelay)
+        #expect(rig.recorder.batches == [[.defaultOutputChanged(from: "uid-a", to: nil)]])
+    }
+
+    @Test func aReadWithoutAnyDefaultThatTheConfirmReadContradictsIsNotALoss() throws {
+        let rig = Rig([device("uid-a", isDefault: true), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a"), device("uid-b")])
+        rig.monitor.emit(.defaultOutput)
+        rig.monitor.set([device("uid-a", isDefault: true), device("uid-b")])
+        rig.clock.advance(by: 5)
+        #expect(rig.recorder.batches.isEmpty)
     }
 
     @Test func aFlapReportsTheLossAtOnceAndTheReturnAfterTheQuietPeriod() throws {
@@ -415,7 +462,11 @@ struct DeviceModelTests {
         rig.monitor.set([device("uid-a"), device("uid-b", isDefault: true)])
         rig.monitor.emit(.defaultOutput)
         rig.clock.advance(by: 1.5)
-        #expect(rig.recorder.batches == [[.defaultOutputChanged(from: "uid-a", to: "uid-b")]])
+        // The loss of the old default at once, the new default after the quiet period.
+        #expect(
+            rig.recorder.batches == [
+                [.defaultOutputChanged(from: "uid-a", to: nil)], [.defaultOutputChanged(from: nil, to: "uid-b")],
+            ])
         #expect(rig.model.defaultOutput?.uid == "uid-b")
     }
 

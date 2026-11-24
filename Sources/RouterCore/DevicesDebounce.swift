@@ -40,13 +40,18 @@ public enum DeviceModelError: Error, Equatable, Sendable {
 /// Raw signals from a `DeviceMonitoring` restart a quiet period. When it ends, the model reads a
 /// new snapshot and reports the difference to the last reported one.
 ///
-/// A loss does not wait: a device list or alive signal reads the devices at once, and when a known
-/// device is no longer alive the whole difference goes out right away (issue 49). A device missing
-/// from that read goes out after a second read `defaultLossConfirmDelay` later misses it too, so one
-/// failed read during device churn stops nothing. An alive flag that cannot be read keeps its last
-/// value. A route on a lost device holds the tap and keeps the app muted until it stops. The way
-/// back waits for the quiet period, so a device that flaps within it reports the loss at once and the return once
-/// after the period. A sample rate, channel or default output change alone waits as well.
+/// A loss does not wait (issue 49). A device list, alive or default output signal reads the devices
+/// at once and reports only the losses in it: a device that is gone, a device that is no longer
+/// alive, and the old default output that lost its role (`.defaultOutputChanged(from:to: nil)`).
+/// Gains wait for the quiet period: an added device, a device alive again and the new default
+/// output (`.defaultOutputChanged(from: nil, to:)`), as well as rate and channel changes.
+/// A device that flaps within the period reports the loss at once and the return once after it.
+///
+/// A dead flag and a default that moved to another device are direct reads and go out at once.
+/// A device missing from the read, or a read with no default output at all, goes out only when a
+/// second read `defaultLossConfirmDelay` later shows it too: one read during device churn can drop
+/// a device whose channel or uid read failed, or catch the default in the middle of a switch.
+/// An alive flag that cannot be read keeps its last value.
 ///
 /// One model has exactly one consumer: `start` throws `DeviceModelError.alreadyRunning` while it
 /// runs. Several consumers, such as the engine and the UI, need a fan out layer above the model:
@@ -150,39 +155,41 @@ public final class DeviceModel: @unchecked Sendable {
             }
             return ready
         }
-        // Only the device list and the alive flag can lose a device.
-        guard isReady, kind == .deviceList || kind == .alive else { return }
+        // A sample rate signal cannot lose a device or the default role.
+        guard isReady, kind != .sampleRate else { return }
         checkLoss(id, confirmed: false)
     }
 
     private typealias Batch = (changes: [DeviceChange], handler: (@Sendable ([DeviceChange]) -> Void)?)
 
-    /// Reads the devices at once and reports the whole difference when a known device is gone or
-    /// no longer alive. A lost device must not wait for the quiet period: a route on it still holds
-    /// the tap, and the app stays muted until the route stops. A return or any other change waits
-    /// for the quiet period as before, so a flap stops a route at once and starts it once after.
+    /// Reads the devices at once and reports the losses in it: gone, no longer alive, or no longer
+    /// the default output. A loss must not wait for the quiet period: a route on that device still
+    /// holds the tap, and the app stays muted until the route stops. Gains stay for the quiet period,
+    /// so a flap stops a route at once and starts it once after.
     ///
-    /// A dead flag that was read is reported at once. A device that is missing from the read is
-    /// reported only when a second read `lossConfirmDelay` later misses it too, because one read
-    /// during device churn can drop a device whose channel or uid read failed. A device that the
-    /// second read finds is not lost.
+    /// A dead flag and a default that moved to another device are direct reads and go out at once.
+    /// A missing device, or no default output at all, goes out only when a second read
+    /// `lossConfirmDelay` later shows it too. One read during device churn can drop a device whose
+    /// channel or uid read failed, or catch the default in the middle of a switch.
     private func checkLoss(_ id: Int, confirmed: Bool) {
         // A failed read reports nothing. The quiet period that the signal started tries again.
         guard let fresh = try? monitor.snapshot() else { return }
         let batch: Batch? = lock.withLock {
             guard running, ready, generation == id else { return nil }
             let merged = Self.mergingUnknowns(old: known, new: fresh)
-            let changes = DeviceChange.diff(old: known, new: merged)
-            let losses = changes.filter(\.isLoss)
-            guard !losses.isEmpty else { return nil }
-            let missing = losses.contains { if case .removed = $0 { true } else { false } }
-            if missing && !confirmed {
+            let afterLosses = Self.applyingLossesOnly(old: known, new: merged)
+            let changes = DeviceChange.diff(old: known, new: afterLosses)
+            guard changes.contains(where: \.isLoss) else { return nil }
+            let missing = changes.contains { if case .removed = $0 { true } else { false } }
+            let noDefault = !merged.contains(where: \.isDefaultOutput)
+            let defaultLost = changes.contains { if case .defaultOutputChanged = $0 { true } else { false } }
+            if (missing || (defaultLost && noDefault)) && !confirmed {
                 if confirmation == nil {
                     confirmation = clock.schedule(after: lossConfirmDelay) { [weak self] in self?.confirm(id) }
                 }
                 return nil
             }
-            known = merged
+            known = afterLosses
             // The quiet period may have ended while the devices were read, with a settle that saw
             // the older list. A new period makes sure a device that is back by now is reported.
             if pendingToken == nil { scheduleLocked(id) }
@@ -229,6 +236,21 @@ public final class DeviceModel: @unchecked Sendable {
             return (changes, handler)
         }
         if let batch, !batch.changes.isEmpty { batch.handler?(batch.changes) }
+    }
+
+    /// `old` with only the losses of `new` applied: a device that is gone is dropped, a device that
+    /// died is dead, the old default output loses its role. Nothing is added or gained.
+    private static func applyingLossesOnly(old: [DeviceInfo], new: [DeviceInfo]) -> [DeviceInfo] {
+        let byUID = Dictionary(new.map { ($0.uid, $0) }) { first, _ in first }
+        return old.compactMap { before in
+            guard let after = byUID[before.uid] else { return nil }
+            let alive = before.isAlive && after.isAlive
+            let isDefault = before.isDefaultOutput && after.isDefaultOutput
+            guard alive != before.isAlive || isDefault != before.isDefaultOutput else { return before }
+            return DeviceInfo(
+                uid: before.uid, name: before.name, outputChannelsPerStream: before.outputChannelsPerStream,
+                nominalSampleRate: before.nominalSampleRate, isAlive: alive, isDefaultOutput: isDefault)
+        }
     }
 
     /// A rate or an alive flag that could not be read keeps its last known value. A new device
