@@ -95,6 +95,29 @@ struct LoginItemViewModelTests {
         #expect(model.isOn)
     }
 
+    @Test func refreshClearsAStaleError() {
+        let service = FakeLoginItemService()
+        service.failure = FakeLoginItemService.Failure()
+        let model = LoginItemViewModel(service: service)
+        model.setEnabled(true)
+        #expect(model.message != nil)
+        model.refresh()
+        #expect(model.message == nil)
+    }
+
+    @Test func approvalHintShowsDespiteAnOldError() {
+        let service = FakeLoginItemService()
+        service.failure = FakeLoginItemService.Failure()
+        let model = LoginItemViewModel(service: service)
+        model.setEnabled(true)
+        service.status = .requiresApproval
+        model.refresh()
+        #expect(model.message?.contains("likely") == true)
+        // A fresh error with the status still requiresApproval keeps the hint too.
+        model.setEnabled(true)
+        #expect(model.message?.contains("likely") == true)
+    }
+
     @Test func plainStatesShowNoMessage() {
         #expect(LoginItemViewModel(service: FakeLoginItemService(status: .notRegistered)).message == nil)
         #expect(LoginItemViewModel(service: FakeLoginItemService(status: .enabled)).message == nil)

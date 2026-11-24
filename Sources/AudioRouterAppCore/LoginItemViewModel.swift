@@ -19,6 +19,7 @@ public final class LoginItemViewModel {
 
     /// Reads the real status. Call it on each appear of Settings.
     public func refresh() {
+        errorMessage = nil
         status = service.status
     }
 
@@ -45,14 +46,14 @@ public final class LoginItemViewModel {
 
     /// A short hint or error for the current state, nil when there is nothing to say.
     public var message: String? {
-        if let errorMessage { return errorMessage }
+        // The approval hint wins over an error, because it comes with the button to Login Items.
         switch status {
         case .requiresApproval:
             return "Approval is likely needed. Allow audio-router in Login Items in System Settings."
         case .notFound:
-            return "The login item was not found. It likely works only from the /Applications folder."
+            return errorMessage ?? "The login item was not found. It likely works only from the /Applications folder."
         case .notRegistered, .enabled:
-            return nil
+            return errorMessage
         }
     }
 
