@@ -9,8 +9,8 @@ Measurements so far: `docs/prototype-findings.md`. This list never edits that fi
 
 ## How to use it
 
-- Copy this file for each run, or fill it in a working branch.
-  Do not commit a filled copy over the template.
+- Copy this file for each run, fill it in, and paste the filled copy as a comment in the release
+  pull request. Do not commit a filled copy to the repository.
 - Fill the header first. Leave a field empty only when it does not apply and say why in Notes.
 - Run the steps in order. Later steps assume the state the earlier ones leave.
   Step 15 needs the permission grant that step 2 created.
@@ -51,9 +51,10 @@ swift build -c release
 - Test app: QuickTime Player playing your 1 kHz sine files at -6 dBFS and -20 dBFS.
   Use full app volume and the system volume unchanged.
   Copy the files to the Desktop, QuickTime Player cannot read from `/private/tmp`.
-- A second playing app for the route steps, for example Spotify.
+- Spotify as the second playing app for the route steps.
   Bundle ids: `com.apple.QuickTimePlayerX` and `com.spotify.client`.
   Find the id of any other app with `.build/release/audio-router-proto apps`.
+- A second output device for step 7: AirPods or a USB interface.
 - Set the macOS default output to the X-USB. A device stream route only holds audio that goes to
   that device (concept, product constraint).
 
@@ -172,7 +173,7 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 6. Two routes on the X-USB at once (findings section 5, item 2)
 
-- Do: route two apps, QuickTime Player and a second app, to different channel pairs of the X-USB.
+- Do: route two apps, QuickTime Player and Spotify, to different channel pairs of the X-USB.
   Both play. With the tool, in two terminals:
 
   ```sh
@@ -192,11 +193,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 7. Two routes on two different devices (findings section 5, item 1)
 
-- Do: only with a second output device, for example the MacBook speakers. Each app plays to its own
+- Do: use AirPods or a USB interface as the second device. Each app plays to its own
   device. Run two `route` commands, one per device uid.
 - Expected: both run together, no glitch. Not measured, no reference yet.
-  If no second device is at hand, write `no second device` in Result and tick neither box.
-  Add a note.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -218,10 +217,10 @@ These are the open items of findings section 1. Record the answers here, not in 
 - Notes:
 - [ ] Pass  [ ] Fail
 
-### 8a. Unplug while a second app plays on channels 3 and 4
+### 8a. Unplug while Spotify plays on channels 3 and 4
 
-- Do: route QuickTime Player to 1,2 and the second app to 3,4. Both play. Unplug the X32 USB cable.
-- Expected: the route stops within about 50 ms and goes to `waitingForDevice`. The second app plays
+- Do: route QuickTime Player to 1,2 and Spotify to 3,4. Both play. Unplug the X32 USB cable.
+- Expected: the route stops within about 50 ms and goes to `waitingForDevice`. Spotify plays
   on the default output, because the released tap no longer mutes it.
   Gap until the app plays on the new default: to be recorded, no reference yet.
   Record the route state and the warning text in the menu or the tool output.
@@ -284,6 +283,7 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 9. Sample rate change on the X32
 
+- Precondition: no live mix on the desk.
 - Do: with a route running at 48 kHz, change the rate of the X32 (for example to 44.1 kHz in
   Audio MIDI Setup or on the X32). Change it back afterwards.
 - Expected: to be recorded, no reference yet. The documents differ. The concept lists a runtime
@@ -384,13 +384,6 @@ These are the open items of findings section 1. Record the answers here, not in 
   (open in `docs/prototype-findings.md`, not part of the X32 release check).
 - macOS versions below the one in the header (findings section 6).
 - Notarisation. The app is ad hoc signed.
-
-## Open before the first run
-
-- Is a second output device available for step 7?
-- Is the second playing app Spotify?
-- Is the X32 sample rate change of step 9 safe with a live mix attached?
-- Where are the filled copies stored?
 
 ## Sign-off
 
