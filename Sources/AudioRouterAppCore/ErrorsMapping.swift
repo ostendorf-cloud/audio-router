@@ -228,10 +228,10 @@ public enum RouteIssues {
     private static func startIssue(
         _ message: String, _ typed: RouterError?, progress: String, names: Names
     ) -> RouteIssue {
-        let kind = typed.map { kind(of: $0) } ?? kind(ofFailureMessage: message)
+        let resolvedKind = typed.map { kind(of: $0) } ?? kind(ofFailureMessage: message)
         let cause: String
         var action = RouteAction.retry
-        switch kind {
+        switch resolvedKind {
         case .permissionStartFailed:
             cause = "The route could not start. The audio capture permission may be missing or denied."
             action = .openAudioCaptureSettings
@@ -252,7 +252,7 @@ public enum RouteIssues {
             cause = "The route could not start."
         }
         return RouteIssue(
-            kind: kind, severity: .error, message: "\(cause) \(progress)", action: action, detail: message)
+            kind: resolvedKind, severity: .error, message: "\(cause) \(progress)", action: action, detail: message)
     }
 
     private static func validation(_ error: RouteValidationError, names: Names) -> RouteIssue {
