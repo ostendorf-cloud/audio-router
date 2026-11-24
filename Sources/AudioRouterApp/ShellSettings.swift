@@ -9,14 +9,13 @@ struct ShellSettings: View {
     var body: some View {
         Form {
             Section("Routes") {
-                Text("The route editor follows in a later version.")
-                    .foregroundStyle(.secondary)
+                EditorRouteList(model: EditorContext.model)
             }
             Section("About") {
                 LabeledContent("audio-router", value: ShellAbout.version())
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420, height: 260)
+        .frame(width: 460, height: 380)
     }
 }
