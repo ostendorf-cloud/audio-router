@@ -4,6 +4,7 @@ The owner runs this list on the X32 before each release and records the results.
 CI cannot grant the capture permission, create a tap with audio, measure a level or test Gatekeeper.
 The release pull request for v0.1.0 stays open and unmerged until every step passes.
 Concept: `docs/concepts/audio-router.md`, decision D10.
+This list serves issue 28.
 Measurements so far: `docs/prototype-findings.md`. This list never edits that file.
 
 ## How to use it
@@ -12,11 +13,11 @@ Measurements so far: `docs/prototype-findings.md`. This list never edits that fi
   Do not commit a filled copy over the template.
 - Fill the header first. Leave a field empty only when it does not apply and say why in Notes.
 - Run the steps in order. Later steps assume the state the earlier ones leave.
+  Step 15 needs the permission grant that step 2 created.
 - Write the observed value in `Result:`. Tick Pass or Fail. Put anything unexpected in `Notes:`.
 - A step marked `depends on issue N` needs that feature.
   Until it exists, write `not testable yet` in `Result:` and leave both boxes empty.
-  The release does not pass with such a step open, unless the release scope leaves the
-  feature out and the owner says so in Notes.
+  Issues 20 to 24 are all in scope for v0.1.0, so the release does not pass with such a step open.
 - Where the expected result says `to be recorded, no reference yet`, no measurement exists.
   Record the observed value. Pass or Fail is then the owner's judgement.
 - Do not fill a field from memory or from the findings. Measure again in this run.
@@ -50,7 +51,9 @@ swift build -c release
 - Test app: QuickTime Player playing your 1 kHz sine files at -6 dBFS and -20 dBFS.
   Use full app volume and the system volume unchanged.
   Copy the files to the Desktop, QuickTime Player cannot read from `/private/tmp`.
-- A second playing app (for example Spotify) for the two route steps.
+- A second playing app for the route steps, for example Spotify.
+  Bundle ids: `com.apple.QuickTimePlayerX` and `com.spotify.client`.
+  Find the id of any other app with `.build/release/audio-router-proto apps`.
 - Set the macOS default output to the X-USB. A device stream route only holds audio that goes to
   that device (concept, product constraint).
 
@@ -106,8 +109,8 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
   10 seconds). Which one happens is not measured, no reference yet (`AGENTS.md`, known limits).
 - Expected: the error text names the right place in System Settings. The app plays normally on its
   own output, and no tap or aggregate device is left behind.
-- Then grant the permission again and use `retryNow` or toggle the route.
-  The route reaches `running`.
+- Then grant the permission again. Use the retry action of the menu, or switch the route off
+  and on. The retry action depends on issue 23. The route reaches `running`.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -122,10 +125,14 @@ These are the open items of findings section 1. Record the answers here, not in 
   otool -s __TEXT __info_plist -v .build/release/audio-router-proto | head -20
   ```
 
-  Remove any grant for the terminal app. Run, with QuickTime Player playing the -6 dBFS sine:
+  Start without a grant for the terminal app. This list uses iTerm.
+  Reset the grant in System Settings, Privacy & Security, Audio Recording: remove or switch off
+  iTerm. Check the pane name on your macOS version. The repository docs name no other way
+  to reset it. Run, with QuickTime Player playing the -6 dBFS sine:
 
   ```sh
-  .build/release/audio-router-proto route --bundle-id <id> --device <uid> --channels 3,4 --meter
+  .build/release/audio-router-proto route --bundle-id com.apple.QuickTimePlayerX --device <uid> \
+    --channels 3,4 --meter
   ```
 
 - Expected, each to be recorded, no reference yet:
@@ -149,15 +156,15 @@ These are the open items of findings section 1. Record the answers here, not in 
 - Do: play your -20 dBFS 1 kHz sine in QuickTime Player, default output on the X-USB. Run:
 
   ```sh
-  .build/release/audio-router-proto route --bundle-id <id> --device <uid> --channels 1,2 --meter
+  .build/release/audio-router-proto route --bundle-id com.apple.QuickTimePlayerX --device <uid> \
+    --channels 1,2 --meter
   ```
 
 - Expected: `tap format: 48000 Hz, 32 channels`. `tap peak` -20.0 dBFS and `tap rms` -23.0 dBFS,
   `out` equal to `tap`, unity within 0.2 dB (the findings criterion). No `warning:` line.
   The signal line shows exactly `1,2` on the tap side.
 - Do (app): repeat with the app meter and the same route. Depends on issues 21 and 22.
-  Expected: the meter reads -20 dBFS peak, unity within the measurement error noted in
-  `docs/prototype-findings.md`.
+  Expected: the meter reads -20 dBFS peak, unity within 0.2 dB.
   The X32 USB return meter matches an unrouted run at the same volumes.
 - Result:
 - Notes:
@@ -169,8 +176,10 @@ These are the open items of findings section 1. Record the answers here, not in 
   Both play. With the tool, in two terminals:
 
   ```sh
-  .build/release/audio-router-proto route --bundle-id <idA> --device <uid> --channels 1,2 --meter
-  .build/release/audio-router-proto route --bundle-id <idB> --device <uid> --channels 3,4 --meter
+  .build/release/audio-router-proto route --bundle-id com.apple.QuickTimePlayerX --device <uid> \
+    --channels 1,2 --meter
+  .build/release/audio-router-proto route --bundle-id com.spotify.client --device <uid> \
+    --channels 3,4 --meter
   ```
 
   With the app: two enabled routes. Depends on issue 21.
@@ -199,10 +208,76 @@ These are the open items of findings section 1. Record the answers here, not in 
 - Do: with one route running, unplug the X32 USB cable. Wait 10 seconds. Plug it in again.
   Findings section 5 item 4 asks the same for the tool: run `route`, then unplug.
 - Expected: the tool tears down cleanly and exits, no hang. In the app the route goes to
-  `waitingForDevice` and the app plays normally. After the replug the route returns to `running`
-  without a click, after the quiet period of the device watcher. Record the time. The app is
-  silent on its normal output again. No tap or aggregate device is left behind.
+  `waitingForDevice` and the app plays normally. The loss stops the route within about 50 ms,
+  because a removal is confirmed by a second read. The return still waits about 1.5 s (the quiet
+  period of the device watcher). After the replug the route returns to `running` without a click.
+  Record both times. The app is silent on its normal output again.
+  No tap or aggregate device is left behind.
   Depends on issues 20 and 22 for status display.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 8a. Unplug while a second app plays on channels 3 and 4
+
+- Do: route QuickTime Player to 1,2 and the second app to 3,4. Both play. Unplug the X32 USB cable.
+- Expected: the route stops within about 50 ms and goes to `waitingForDevice`. The second app plays
+  on the default output, because the released tap no longer mutes it.
+  Gap until the app plays on the new default: to be recorded, no reference yet.
+  Record the route state and the warning text in the menu or the tool output.
+  Record a left over tap or aggregate device (step 12 says how to check).
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 8b. Replug after 8a
+
+- Do: plug the cable in again.
+- Expected: the route returns to `running` without a click after about 1.5 s plus the start.
+  The app is silent on its normal output again. Time until audio on channels 3 and 4:
+  to be recorded, no reference yet. Record any left over tap or aggregate device.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 8c. Flap within one second
+
+- Do: unplug the cable and plug it in again within 1 second.
+- Expected: the app is audible on the default output during the gap and the route starts once
+  after the return. Gap and start time: to be recorded, no reference yet.
+  Record the route state, the warning text and any left over tap or aggregate device.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 8d. The default output moves to AirPods while an X32 route runs
+
+- Do: with the X32 route running, connect the AirPods so macOS makes them the default output.
+- Expected: the route pauses and goes to `waitingForDevice`. The app is audible on the AirPods.
+  Verify it is NOT muted. A failure here is a release blocker.
+  Gap until the app plays on the AirPods: to be recorded, no reference yet.
+  Record the route state and the warning text. Record any left over tap or aggregate device.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 8e. The default output returns to the X32
+
+- Do: set the default output back to the X-USB.
+- Expected: the route resumes without a click after about 1.5 s plus the start. The app is silent
+  on its normal output again. Time until audio on the routed channels: to be recorded, no
+  reference yet. Record any left over tap or aggregate device.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 8f. The default output moves to the speakers
+
+- Do: with the X32 route running, set the MacBook speakers as the default output.
+- Expected: the same as 8d with the speakers. The route pauses, the app is audible on the
+  speakers and not muted. A muted app is a release blocker.
+  Gap: to be recorded, no reference yet. Record the route state, the warning text and any left
+  over tap or aggregate device.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -250,7 +325,8 @@ These are the open items of findings section 1. Record the answers here, not in 
 - Expected: the routed app plays on its normal output again right after quit. Quit returns after the
   teardown, which runs in the order IO proc, aggregate device, tap. The tool also tears down on
   `kill -TERM` and `kill -HUP`. No tap or aggregate device is left behind. Record how you checked
-  that, for example Audio MIDI Setup or the `apps` list.
+  that, for example `audio-router-proto devices` before and after, or Audio MIDI Setup.
+  The repository does not say that either one shows a private aggregate. Not verified.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -274,7 +350,10 @@ These are the open items of findings section 1. Record the answers here, not in 
   Note the `frames` average at the start and at the end.
 
   ```sh
-  .build/release/audio-router-proto route --bundle-id <id> --device <uid> --channels 1,2 --meter 2>&1 | tee drift.log
+  .build/release/audio-router-proto route --bundle-id com.apple.QuickTimePlayerX --device <uid> \
+    --channels 1,2 --meter 2>&1 | tee drift-a.log
+  .build/release/audio-router-proto route --bundle-id com.spotify.client --device <uid> \
+    --channels 3,4 --meter 2>&1 | tee drift-b.log
   ```
 
 - Expected: no dropout or crackle, `tap peak` stays at -6.0 dBFS within 0.2 dB, no new warning.
@@ -301,11 +380,17 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ## Not covered by this list
 
-- The default output moving away from the target device (issue 42).
 - The MacBook speaker rows, a stereo input device and a device with several input streams
   (open in `docs/prototype-findings.md`, not part of the X32 release check).
 - macOS versions below the one in the header (findings section 6).
 - Notarisation. The app is ad hoc signed.
+
+## Open before the first run
+
+- Is a second output device available for step 7?
+- Is the second playing app Spotify?
+- Is the X32 sample rate change of step 9 safe with a live mix attached?
+- Where are the filled copies stored?
 
 ## Sign-off
 

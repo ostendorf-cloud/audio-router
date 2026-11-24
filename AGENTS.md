@@ -112,7 +112,7 @@ Nothing active prints the full permission warning only.
   - `observe` handlers run on the engine queue and must not call `start`, `setOn` or `stopAll`.
 - Known limits of the engine:
   - Several routes at once on one device (two aggregates on one device) are not measured.
-    Do not claim they work. The hardware checklist (issue 15) covers it.
+    Do not claim they work. The hardware checklist (`docs/hardware-checklist.md`, issue 28) covers it.
   - Whether a denied capture permission fails with an OSStatus or delivers silence is not measured
     (`docs/prototype-findings.md` section 1). As an OSStatus it ends in `retriesExhausted`, as silence in the
     `noSignal` warning. `EngineConfiguration.classify` can map a measured status to `permanent`.
