@@ -11,11 +11,13 @@ struct ShellSettings: View {
             Section("Routes") {
                 EditorRouteList(model: EditorContext.model)
             }
+            LoginItemSection()
             Section("About") {
                 LabeledContent("audio-router", value: ShellAbout.version())
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 380)
+        .frame(width: 460)
+        .frame(minHeight: 380)
     }
 }
