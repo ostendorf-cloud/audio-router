@@ -12,6 +12,7 @@ struct ShellSettings: View {
                 Text("The route editor follows in a later version.")
                     .foregroundStyle(.secondary)
             }
+            MeterSettingsSection()
             Section("About") {
                 LabeledContent("audio-router", value: ShellAbout.version())
             }

@@ -25,6 +25,7 @@ struct ShellMenu: View {
                         get: { row.isEnabled },
                         set: { model.setRouteEnabled(row.id, $0) }))
             }
+            MeterMenuLines(model: model)
         }
         Divider()
         // An accessory app is not active, so the settings window would open behind other windows.

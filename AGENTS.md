@@ -150,6 +150,13 @@ Nothing active prints the full permission warning only.
   - Quit has no time limit, so a hanging `stopAll` keeps the app from quitting. That keeps the teardown guarantee.
   - A failed engine start (`startFailure`) clears only on a new `start`, nothing retries it before a relaunch.
     Issue 23 owns the error handling.
+- Meters (issue 22): `RouteEngine.meterReadings()` reads the meter of every running route and returns one
+  `MeterReading` per route id. The engine never reads a meter on its own, the snapshot carries none.
+  `MeterPoller` (`AudioRouterAppCore`) calls it at about 15 Hz, off the main thread, and only while the menu or
+  the settings window is visible. Each view reports itself as a `MeterClient`, and polling stops when none is left.
+  Only one reader may poll, a second one takes intervals from the first.
+  Left and right are merged in one level, and `output` equals `tap` by construction, so the UI shows the tap.
+  The bar runs from -60 to 0 dBFS (`MeterLevel`), the number is the peak.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.
 - Tests use no network, no audio hardware and no permission. New device or process code goes behind a protocol.
