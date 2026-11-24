@@ -41,9 +41,11 @@ public enum DeviceModelError: Error, Equatable, Sendable {
 /// new snapshot and reports the difference to the last reported one.
 ///
 /// A loss does not wait: a device list or alive signal reads the devices at once, and when a known
-/// device is gone or no longer alive the whole difference goes out right away (issue 49). A route on
-/// a lost device holds the tap and keeps the app muted until it stops. The way back waits for the
-/// quiet period, so a device that flaps within it reports the loss at once and the return once
+/// device is no longer alive the whole difference goes out right away (issue 49). A device missing
+/// from that read goes out after a second read `defaultLossConfirmDelay` later misses it too, so one
+/// failed read during device churn stops nothing. An alive flag that cannot be read keeps its last
+/// value. A route on a lost device holds the tap and keeps the app muted until it stops. The way
+/// back waits for the quiet period, so a device that flaps within it reports the loss at once and the return once
 /// after the period. A sample rate, channel or default output change alone waits as well.
 ///
 /// One model has exactly one consumer: `start` throws `DeviceModelError.alreadyRunning` while it
@@ -55,10 +57,16 @@ public enum DeviceModelError: Error, Equatable, Sendable {
 public final class DeviceModel: @unchecked Sendable {
     /// The quiet period the app uses, within the 1 to 2 s of the concept.
     public static let defaultDebounce: TimeInterval = 1.5
+    /// How long after a read that misses a device the second read runs. Short, so a removal still
+    /// stops its route long before the quiet period would. Not measured on hardware.
+    public static let defaultLossConfirmDelay: TimeInterval = 0.05
 
     private let monitor: any DeviceMonitoring
     private let clock: any DebounceClock
     private let debounce: TimeInterval
+    private let lossConfirmDelay: TimeInterval
+    /// The planned second read for a missing device, if any. Guarded by `lock`.
+    private var confirmation: (any Cancellable)?
     private let lock = NSLock()
     private var known: [DeviceInfo] = []
     private var generation = 0
@@ -74,11 +82,13 @@ public final class DeviceModel: @unchecked Sendable {
 
     public init(
         monitor: any DeviceMonitoring, clock: any DebounceClock = DispatchDebounceClock(),
-        debounce: TimeInterval = DeviceModel.defaultDebounce
+        debounce: TimeInterval = DeviceModel.defaultDebounce,
+        lossConfirmDelay: TimeInterval = DeviceModel.defaultLossConfirmDelay
     ) {
         self.monitor = monitor
         self.clock = clock
         self.debounce = debounce
+        self.lossConfirmDelay = lossConfirmDelay
     }
 
     deinit { stop(nil) }
@@ -123,7 +133,7 @@ public final class DeviceModel: @unchecked Sendable {
         }
         lock.withLock {
             guard running, generation == id else { return }
-            known = baseline
+            known = Self.mergingUnknowns(old: [], new: baseline)
             ready = true
             if dirty { scheduleLocked(id) }
         }
@@ -142,21 +152,36 @@ public final class DeviceModel: @unchecked Sendable {
         }
         // Only the device list and the alive flag can lose a device.
         guard isReady, kind == .deviceList || kind == .alive else { return }
-        reportLoss(id)
+        checkLoss(id, confirmed: false)
     }
+
+    private typealias Batch = (changes: [DeviceChange], handler: (@Sendable ([DeviceChange]) -> Void)?)
 
     /// Reads the devices at once and reports the whole difference when a known device is gone or
     /// no longer alive. A lost device must not wait for the quiet period: a route on it still holds
     /// the tap, and the app stays muted until the route stops. A return or any other change waits
     /// for the quiet period as before, so a flap stops a route at once and starts it once after.
-    private func reportLoss(_ id: Int) {
+    ///
+    /// A dead flag that was read is reported at once. A device that is missing from the read is
+    /// reported only when a second read `lossConfirmDelay` later misses it too, because one read
+    /// during device churn can drop a device whose channel or uid read failed. A device that the
+    /// second read finds is not lost.
+    private func checkLoss(_ id: Int, confirmed: Bool) {
         // A failed read reports nothing. The quiet period that the signal started tries again.
         guard let fresh = try? monitor.snapshot() else { return }
-        let batch: (changes: [DeviceChange], handler: (@Sendable ([DeviceChange]) -> Void)?)? = lock.withLock {
+        let batch: Batch? = lock.withLock {
             guard running, ready, generation == id else { return nil }
-            let merged = Self.keepingKnownRates(old: known, new: fresh)
+            let merged = Self.mergingUnknowns(old: known, new: fresh)
             let changes = DeviceChange.diff(old: known, new: merged)
-            guard changes.contains(where: \.isLoss) else { return nil }
+            let losses = changes.filter(\.isLoss)
+            guard !losses.isEmpty else { return nil }
+            let missing = losses.contains { if case .removed = $0 { true } else { false } }
+            if missing && !confirmed {
+                if confirmation == nil {
+                    confirmation = clock.schedule(after: lossConfirmDelay) { [weak self] in self?.confirm(id) }
+                }
+                return nil
+            }
             known = merged
             // The quiet period may have ended while the devices were read, with a settle that saw
             // the older list. A new period makes sure a device that is back by now is reported.
@@ -164,6 +189,17 @@ public final class DeviceModel: @unchecked Sendable {
             return (changes, handler)
         }
         if let batch { batch.handler?(batch.changes) }
+    }
+
+    /// The second read for a missing device. A signal during the read may plan another one.
+    private func confirm(_ id: Int) {
+        let current: Bool = lock.withLock {
+            guard running, ready, generation == id else { return false }
+            confirmation = nil
+            return true
+        }
+        guard current else { return }
+        checkLoss(id, confirmed: true)
     }
 
     /// Restarts the quiet period. The caller holds the lock.
@@ -187,7 +223,7 @@ public final class DeviceModel: @unchecked Sendable {
                 pendingToken = nil
             }
             guard let fresh else { return nil }
-            let merged = Self.keepingKnownRates(old: known, new: fresh)
+            let merged = Self.mergingUnknowns(old: known, new: fresh)
             let changes = DeviceChange.diff(old: known, new: merged)
             known = merged
             return (changes, handler)
@@ -195,33 +231,37 @@ public final class DeviceModel: @unchecked Sendable {
         if let batch, !batch.changes.isEmpty { batch.handler?(batch.changes) }
     }
 
-    /// A rate that could not be read keeps its last known value.
-    private static func keepingKnownRates(old: [DeviceInfo], new: [DeviceInfo]) -> [DeviceInfo] {
-        let rates = Dictionary(old.compactMap { d in d.nominalSampleRate.map { (d.uid, $0) } }) { first, _ in first }
+    /// A rate or an alive flag that could not be read keeps its last known value. A new device
+    /// whose alive flag could not be read counts as not alive until a read succeeds.
+    private static func mergingUnknowns(old: [DeviceInfo], new: [DeviceInfo]) -> [DeviceInfo] {
+        let byUID = Dictionary(old.map { ($0.uid, $0) }) { first, _ in first }
         return new.map { device in
-            guard device.nominalSampleRate == nil, let rate = rates[device.uid] else { return device }
+            let before = byUID[device.uid]
+            guard device.nominalSampleRate == nil || !device.isAliveKnown else { return device }
             return DeviceInfo(
                 uid: device.uid, name: device.name, outputChannelsPerStream: device.outputChannelsPerStream,
-                nominalSampleRate: rate, isAlive: device.isAlive, isDefaultOutput: device.isDefaultOutput)
+                nominalSampleRate: device.nominalSampleRate ?? before?.nominalSampleRate,
+                isAlive: device.isAliveKnown ? device.isAlive : (before?.isAlive ?? false),
+                isDefaultOutput: device.isDefaultOutput)
         }
     }
 
     /// Stops the run `id`, or any run for nil. The removals happen outside the lock.
     fileprivate func stop(_ id: Int?) {
-        let released: (observer: (any Cancellable)?, pending: (any Cancellable)?)? = lock.withLock {
+        let released: [(any Cancellable)?]? = lock.withLock {
             guard running, id == nil || generation == id else { return nil }
             running = false
             ready = false
             dirty = false
-            let held = (observer, pending)
+            let held = [observer, pending, confirmation]
             observer = nil
             pending = nil
             pendingToken = nil
+            confirmation = nil
             handler = nil
             return held
         }
-        released?.observer?.cancel()
-        released?.pending?.cancel()
+        for item in released ?? [] { item?.cancel() }
     }
 
     private final class Stop: Cancellable, @unchecked Sendable {

@@ -174,6 +174,16 @@ private func device(
         isAlive: alive, isDefaultOutput: isDefault)
 }
 
+/// The read that confirms a missing device, as the model uses it by default.
+private let confirmDelay = DeviceModel.defaultLossConfirmDelay
+
+/// A device whose alive flag could not be read. The flag value is what the reader falls back to.
+private func unknownAlive(_ uid: String) -> DeviceInfo {
+    DeviceInfo(
+        uid: uid, name: "Name of \(uid)", outputChannelsPerStream: [2], nominalSampleRate: 48000, isAlive: false,
+        isDefaultOutput: false, isAliveKnown: false)
+}
+
 private struct Rig {
     let monitor: FakeDeviceMonitor
     let clock = FakeDebounceClock()
@@ -234,12 +244,14 @@ struct DeviceModelTests {
         #expect(rig.model.devices.map(\.uid) == ["uid-a"])
     }
 
-    @Test func aLostDeviceIsReportedAtOnce() throws {
+    @Test func aMissingDeviceIsReportedAfterTheConfirmReadNotAfterTheQuietPeriod() throws {
         let rig = Rig([device("uid-a"), device("uid-b", isDefault: true)])
         _ = try rig.start()
         rig.monitor.set([device("uid-a")])
         rig.monitor.emit(.deviceList)
-        // No time passed. The whole difference goes out with the loss.
+        #expect(rig.recorder.batches.isEmpty)
+        rig.clock.advance(by: confirmDelay)
+        // The whole difference goes out with the confirmed loss.
         #expect(
             rig.recorder.batches == [
                 [.removed(device("uid-b", isDefault: true)), .defaultOutputChanged(from: "uid-b", to: nil)]
@@ -247,6 +259,50 @@ struct DeviceModelTests {
         #expect(rig.model.devices.map(\.uid) == ["uid-a"])
         rig.clock.advance(by: 5)
         #expect(rig.recorder.batches.count == 1)
+    }
+
+    @Test func theConfirmReadIsShortAndFarBelowTheQuietPeriod() throws {
+        #expect(DeviceModel.defaultLossConfirmDelay > 0)
+        #expect(DeviceModel.defaultLossConfirmDelay <= 0.1)
+        let rig = Rig([device("uid-a"), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a")])
+        rig.monitor.emit(.deviceList)
+        #expect(rig.clock.requestedDelays == [1.5, DeviceModel.defaultLossConfirmDelay])
+    }
+
+    @Test func aDeviceMissingFromOneReadOnlyIsNotLost() throws {
+        // A read during device churn can miss a device whose channel or uid read failed.
+        let rig = Rig([device("uid-a"), device("uid-b")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a")])
+        rig.monitor.emit(.deviceList)
+        rig.monitor.set([device("uid-a"), device("uid-b")])
+        rig.clock.advance(by: confirmDelay)
+        #expect(rig.recorder.batches.isEmpty)
+        #expect(rig.model.devices.map(\.uid) == ["uid-a", "uid-b"])
+        rig.clock.advance(by: 5)
+        #expect(rig.recorder.batches.isEmpty)
+    }
+
+    @Test func aFailedAliveReadKeepsTheLastState() throws {
+        let rig = Rig([device("uid-a")])
+        _ = try rig.start()
+        rig.monitor.set([unknownAlive("uid-a")])
+        rig.monitor.emit(.alive)
+        rig.monitor.emit(.deviceList)
+        rig.clock.advance(by: 5)
+        #expect(rig.recorder.batches.isEmpty)
+        #expect(rig.model.devices.first?.isAlive == true)
+    }
+
+    @Test func aFailedAliveReadOfANewDeviceCountsAsNotAlive() throws {
+        let rig = Rig([device("uid-a")])
+        _ = try rig.start()
+        rig.monitor.set([device("uid-a"), unknownAlive("uid-b")])
+        rig.monitor.emit(.deviceList)
+        rig.clock.advance(by: 1.5)
+        #expect(rig.recorder.batches == [[.added(device("uid-b", alive: false))]])
     }
 
     @Test func aDeviceThatIsNoLongerAliveIsReportedAtOnce() throws {
@@ -277,6 +333,7 @@ struct DeviceModelTests {
         _ = try rig.start()
         rig.monitor.set([device("uid-a")])
         rig.monitor.emit(.deviceList)
+        rig.clock.advance(by: confirmDelay)
         #expect(rig.recorder.batches == [[.removed(device("uid-b"))]])
         rig.clock.advance(by: 0.5)
         rig.monitor.set([device("uid-a"), device("uid-b")])
@@ -295,7 +352,7 @@ struct DeviceModelTests {
         let monitor = rig.monitor
         let clock = rig.clock
         let once = Once()
-        // The read of the loss sees the list without uid-b. Right after it uid-b is back and the
+        // The read of the loss sees uid-b dead. Right after it uid-b is alive again and the
         // quiet period ends: that settle finds nothing new against the old list.
         monitor.onSnapshot {
             if once.first() {
@@ -303,13 +360,15 @@ struct DeviceModelTests {
                 clock.advance(by: 1.5)
             }
         }
-        monitor.set([device("uid-a")])
-        monitor.emit(.deviceList)
+        monitor.set([device("uid-a"), device("uid-b", alive: false)])
+        monitor.emit(.alive)
         monitor.onSnapshot(nil)
-        #expect(rig.recorder.batches == [[.removed(device("uid-b"))]])
+        #expect(rig.recorder.batches == [[.aliveChanged(uid: "uid-b", isAlive: false)]])
         #expect(clock.pendingCount == 1)
         clock.advance(by: 1.5)
-        #expect(rig.recorder.batches == [[.removed(device("uid-b"))], [.added(device("uid-b"))]])
+        let dead: [DeviceChange] = [.aliveChanged(uid: "uid-b", isAlive: false)]
+        let back: [DeviceChange] = [.aliveChanged(uid: "uid-b", isAlive: true)]
+        #expect(rig.recorder.batches == [dead, back])
     }
 
     @Test func aStormGivesOneBatchAfterTheLastSignal() throws {
@@ -489,7 +548,8 @@ struct DeviceModelTests {
         let handle = try model!.start { _ in }
         monitor.set([])
         monitor.emit(.deviceList)
-        #expect(clock.pendingCount == 1)
+        // The quiet period and the read that confirms the missing device.
+        #expect(clock.pendingCount == 2)
         model = nil
         #expect(!monitor.isObserved)
         #expect(monitor.cancelCalls == 1)

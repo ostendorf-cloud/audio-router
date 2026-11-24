@@ -48,8 +48,9 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 /// `helperStopped` does not restart the route: the tap keeps the process object of the gone helper,
 /// whether that matters is not measured.
 ///
-/// Device loss and recovery (issue 49): the `DeviceModel` reports a lost or dead device at once, so
-/// the route stops in the fixed order and releases the tap. The tap mutes the app only while it is
+/// Device loss and recovery (issue 49): the `DeviceModel` reports a dead device at once and a
+/// missing one after a short confirm read, so the route stops in the fixed order and releases the
+/// tap. The tap mutes the app only while it is
 /// read, so the app plays on its default output again while the route waits in `waitingForDevice`.
 /// The return waits for the quiet period of the model: a device that is gone and back within it
 /// stops its routes at once and starts them once after the period. The engine adds no second
@@ -66,9 +67,11 @@ public enum RouteEngineError: Error, Equatable, Sendable {
 /// - `observe` handlers run on the engine queue and must not call `start`, `setOn` or `stopAll`.
 /// - A route follows the presence of its destination only, never the default output (issue 49).
 ///   The concept's rule that the default output moving away counts as device lost (issue 42)
-///   conflicts with that and is open. A device stream tap only captures audio that goes to its
-///   device, so whether the app still reaches the route after the default moved away is a
-///   hardware question.
+///   conflicts with that and is open. A device stream tap mixes the audio "destined for the
+///   selected device stream" (`CATapDescription.h`, line 87). When the app follows the default
+///   output elsewhere, the route expects silence and a `noSignal` warning. Not measured: whether
+///   `CATapMutedWhenTapped` (lines 26 to 28) also mutes the app on the new default while the tap
+///   is read. Then the app would be silent everywhere, which issue 49 forbids.
 /// - The session reports no runtime error of the IO proc, so `running` only leaves through events.
 /// - A flapping device with a failing start retries without end and never reaches
 ///   `retriesExhausted`, because every replug clears the attempt count. The pace is bounded by the

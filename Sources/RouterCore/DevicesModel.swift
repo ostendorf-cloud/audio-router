@@ -17,10 +17,13 @@ public struct DeviceInfo: Equatable, Sendable {
     public let isAlive: Bool
     /// True for the device that is the system default output.
     public let isDefaultOutput: Bool
+    /// False when the alive flag could not be read. `DeviceModel` then keeps the last known flag,
+    /// so a failed read is never reported as a dead device. Every device the model holds has it true.
+    public let isAliveKnown: Bool
 
     public init(
         uid: String, name: String, outputChannelsPerStream: [Int], nominalSampleRate: Double?, isAlive: Bool,
-        isDefaultOutput: Bool
+        isDefaultOutput: Bool, isAliveKnown: Bool = true
     ) {
         self.uid = uid
         self.name = name
@@ -28,6 +31,7 @@ public struct DeviceInfo: Equatable, Sendable {
         self.nominalSampleRate = nominalSampleRate
         self.isAlive = isAlive
         self.isDefaultOutput = isDefaultOutput
+        self.isAliveKnown = isAliveKnown
     }
 
     /// Output channels summed over all output streams.

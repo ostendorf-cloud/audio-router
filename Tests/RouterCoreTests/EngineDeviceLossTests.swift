@@ -36,11 +36,41 @@ private let headphones = "headphones-uid"
         return EngineRig(devices: devices, sessions: BackendSessionMaker(backend: backend, devices: provider))
     }
 
-    /// Plays a raw signal and lets the engine work, without any time passing on the device model.
+    /// Plays a raw signal and lets the engine work. A device list signal also lets the short read
+    /// that confirms a missing device pass, never the quiet period. An alive signal lets no time pass.
     private func signal(_ rig: EngineRig, _ devices: [DeviceInfo], _ kind: DeviceSignal = .deviceList) {
         rig.deviceMonitor.set(devices)
         rig.deviceMonitor.emit(kind)
+        if kind == .deviceList { rig.deviceClock.advance(by: DeviceModel.defaultLossConfirmDelay) }
         rig.engine.waitUntilIdle()
+    }
+
+    @Test func aDeviceMissingFromOneReadOnlyKeepsTheRoute() throws {
+        let backend = FakeBackend()
+        let rig = makeRig(backend, devices: [mixer(), output(speakers, isDefault: true)])
+        try rig.run([a])
+        // One read during device churn misses the mixer, the confirm read finds it again.
+        rig.deviceMonitor.set([output(speakers, isDefault: true)])
+        rig.deviceMonitor.emit(.deviceList)
+        rig.deviceMonitor.set([mixer(), output(speakers, isDefault: true)])
+        rig.deviceClock.advance(by: 5)
+        rig.engine.waitUntilIdle()
+        #expect(backend.calls == Self.create)
+        #expect(rig.state(a) == .running(warnings: []))
+    }
+
+    @Test func aFailedAliveReadKeepsTheRoute() throws {
+        let backend = FakeBackend()
+        let rig = makeRig(backend, devices: [mixer(), output(speakers, isDefault: true)])
+        try rig.run([a])
+        let unreadable = DeviceInfo(
+            uid: EngineSamples.mixerUID, name: "Name of mixer", outputChannelsPerStream: [32], nominalSampleRate: 48000,
+            isAlive: false, isDefaultOutput: false, isAliveKnown: false)
+        signal(rig, [unreadable, output(speakers, isDefault: true)], .alive)
+        rig.deviceClock.advance(by: 5)
+        rig.engine.waitUntilIdle()
+        #expect(backend.calls == Self.create)
+        #expect(rig.state(a) == .running(warnings: []))
     }
 
     @Test func aRemovedDeviceStopsTheIOAndReleasesTheTapWithoutWaitingForTheQuietPeriod() throws {

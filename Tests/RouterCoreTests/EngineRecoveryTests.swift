@@ -47,6 +47,7 @@ private func entered(_ gate: Gate) -> Bool {
         try rig.run([a])
         rig.deviceMonitor.set([])
         rig.deviceMonitor.emit(.deviceList)
+        rig.deviceClock.advance(by: DeviceModel.defaultLossConfirmDelay)
         rig.engine.waitUntilIdle()
         #expect(rig.log == ["start a 101,102", "stop a"])
         rig.deviceClock.advance(by: 1.0)
