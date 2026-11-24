@@ -38,6 +38,14 @@ The global baseline already applies here and is not repeated below.
   `Tests/RouterCoreAudioTests` runs the real time code on in memory buffer lists.
 - `docs/prototype-findings.md` is a template the owner fills from a real Mac. Never fill it with guesses.
 
+## Login item
+
+The Settings toggle registers `SMAppService.mainApp` through the `LoginItemService` protocol.
+`LoginItemViewModel` in `AudioRouterAppCore` maps the four statuses and an error to a toggle and a hint.
+The live service sits in `Sources/AudioRouterApp/LoginItemLive.swift`, because the core has no ServiceManagement import.
+Settings reads the real status on each appear. It only registers the app. Restoring routes is the engine's job.
+Not verified: the behaviour with the ad hoc build, and from outside `/Applications`.
+
 ## Commands
 
 ```sh
