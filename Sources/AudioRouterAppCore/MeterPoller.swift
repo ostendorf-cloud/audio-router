@@ -84,6 +84,8 @@ public final class MeterPoller {
         self.mainHop = mainHop
     }
 
+    deinit { timer?.cancel() }
+
     /// True while the timer runs.
     public var isPolling: Bool { timer != nil }
 

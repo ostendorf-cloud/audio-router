@@ -59,21 +59,24 @@ struct MeterList: View {
     }
 }
 
-/// One hook for the menu: the meters below the route rows. The menu counts as visible between
-/// `onAppear` and `onDisappear`. A `MenuBarExtra` menu may not report these reliably. Not verified,
-/// see the pull request. The poller counts a client once, so a repeated event does no harm.
+/// One hook for the menu: one text line per running route, for example `Music  -20.0 dBFS`. Text
+/// only, because a `MenuBarExtra` in menu style turns its content into menu items and draws no bar.
+/// It starts no polling. `MeterMenuTracker` does, from the menu tracking notifications, because
+/// `onAppear` and `onDisappear` are not tied to opening and closing the menu.
 struct MeterMenuLines: View {
     let model: ShellViewModel
 
     var body: some View {
-        MeterList(model: model)
-            .onAppear { model.meters.start(.menu) }
-            .onDisappear { model.meters.stop(.menu) }
+        ForEach(model.rows.filter { $0.state == .running || $0.state == .warning }) { row in
+            Text("\(row.name)  \(model.meters.levels[row.id].map { "\($0.peakText) dBFS" } ?? "-")")
+        }
     }
 }
 
-/// One hook for the settings window: a section with the meters. The window reports its own
-/// visibility, because closing a settings window does not have to remove its content.
+/// One hook for the settings window: a section with the meters. The only signal for the settings
+/// client is the window itself (`WindowVisibility`). `onAppear` and `onDisappear` are not used:
+/// closing a settings window does not have to remove its content, and a second signal would
+/// disagree with the first.
 struct MeterSettingsSection: View {
     var body: some View {
         let model = ShellContext.model
@@ -88,7 +91,6 @@ struct MeterSettingsSection: View {
                         }
                     }
                 )
-                .onDisappear { model.meters.stop(.settings) }
         }
     }
 }
@@ -108,7 +110,21 @@ struct WindowVisibility: NSViewRepresentable {
         view.onChange = onChange
     }
 
+    /// The view leaves the hierarchy: the window is gone for good, so report it as hidden.
+    /// Close and reopen: `willClose` reports false, the next occlusion change of the shown window
+    /// reports true. Every change goes through `report`, and `last` is the one record of what the
+    /// poller was told, so no report is swallowed.
+    static func dismantleNSView(_ view: TrackingView, coordinator: ()) {
+        view.finish()
+    }
+
     final class TrackingView: NSView {
+        func finish() {
+            for observer in observers { NotificationCenter.default.removeObserver(observer) }
+            observers = []
+            report(false)
+        }
+
         var onChange: @MainActor (Bool) -> Void = { _ in }
         private var observers: [any NSObjectProtocol] = []
         private var last: Bool?

@@ -35,7 +35,7 @@ struct ShellMenu: View {
             openSettings()
         }
         .keyboardShortcut(",")
-        Button("Quit audio-router") {
+        Button(MeterMenuTracker.quitTitle) {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")

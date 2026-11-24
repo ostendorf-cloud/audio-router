@@ -72,6 +72,8 @@ final class FakeShellEngine: ShellEngine, @unchecked Sendable {
         return [:]
     }
 
+    func meterReadings() -> [UUID: MeterReading] { [:] }
+
     private struct NoCancel: Cancellable {
         func cancel() {}
     }

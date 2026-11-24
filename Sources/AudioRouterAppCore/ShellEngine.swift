@@ -20,9 +20,4 @@ public protocol ShellEngine: Sendable {
     func meterReadings() -> [UUID: MeterReading]
 }
 
-extension ShellEngine {
-    /// A seam without meters reports none.
-    public func meterReadings() -> [UUID: MeterReading] { [:] }
-}
-
 extension RouteEngine: ShellEngine {}

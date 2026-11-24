@@ -31,7 +31,22 @@ final class ShellAppDelegate: NSObject, NSApplicationDelegate {
         // A bundled run gets no Dock icon from LSUIElement. A dev run (`swift run`) has no Info.plist,
         // so the policy is set here too.
         NSApp.setActivationPolicy(.accessory)
+        observeMenuTracking()
         MainActor.assumeIsolated { ShellContext.startEngine() }
+    }
+
+    /// Feeds the menu client of the meters. Registered once. The notifications come from every menu of
+    /// the app, so the tracker filters on the item titles (`MeterMenuTracker.ownsMenu`).
+    private func observeMenuTracking() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { note in
+            let titles = (note.object as? NSMenu)?.items.map(\.title) ?? []
+            MainActor.assumeIsolated { ShellContext.model.menuTracker.menuDidBeginTracking(itemTitles: titles) }
+        }
+        center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { note in
+            let titles = (note.object as? NSMenu)?.items.map(\.title) ?? []
+            MainActor.assumeIsolated { ShellContext.model.menuTracker.menuDidEndTracking(itemTitles: titles) }
+        }
     }
 
     /// Quit waits for `engine.stopAll()`. `.terminateLater` keeps the process alive while the view

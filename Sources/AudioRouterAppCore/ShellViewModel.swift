@@ -21,6 +21,8 @@ public final class ShellViewModel {
 
     /// The live meters. The views start and stop it, see `MeterPoller`.
     public let meters: MeterPoller
+    /// Feeds the menu client of `meters` from the menu tracking notifications.
+    public let menuTracker: MeterMenuTracker
     public private(set) var snapshot: EngineSnapshot
     /// Set when the engine could not start. Shown as the error state.
     public private(set) var startFailure: String?
@@ -38,7 +40,9 @@ public final class ShellViewModel {
     ) {
         self.engine = engine
         self.offMain = offMain
-        meters = MeterPoller(read: { engine.meterReadings() }, offMain: offMain, mainHop: mainHop)
+        let meters = MeterPoller(read: { engine.meterReadings() }, offMain: offMain, mainHop: mainHop)
+        self.meters = meters
+        menuTracker = MeterMenuTracker(poller: meters)
         snapshot = engine.snapshot
         // Handlers run on the engine queue. They only hop to the main actor and never call the engine.
         observation = engine.observe { [weak self] snapshot in

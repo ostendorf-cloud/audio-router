@@ -153,7 +153,10 @@ Nothing active prints the full permission warning only.
 - Meters (issue 22): `RouteEngine.meterReadings()` reads the meter of every running route and returns one
   `MeterReading` per route id. The engine never reads a meter on its own, the snapshot carries none.
   `MeterPoller` (`AudioRouterAppCore`) calls it at about 15 Hz, off the main thread, and only while the menu or
-  the settings window is visible. Each view reports itself as a `MeterClient`, and polling stops when none is left.
+  the settings window is visible. Each part reports itself as a `MeterClient`, and polling stops when none is left.
+  The menu shows text lines only and is polled while it tracks: `MeterMenuTracker` follows
+  `NSMenu.didBeginTrackingNotification` and `didEndTrackingNotification`, filtered to the menu with the quit item.
+  `onAppear` is not used for the menu. The bar is in Settings, driven by the window's own visibility.
   Only one reader may poll, a second one takes intervals from the first.
   Left and right are merged in one level, and `output` equals `tap` by construction, so the UI shows the tap.
   The bar runs from -60 to 0 dBFS (`MeterLevel`), the number is the peak.
