@@ -19,6 +19,8 @@ public final class ShellViewModel {
     @ObservationIgnored private var observation: (any Cancellable)?
     @ObservationIgnored private var shuttingDown = false
 
+    /// The live meters. The views start and stop it, see `MeterPoller`.
+    public let meters: MeterPoller
     public private(set) var snapshot: EngineSnapshot
     /// Set when the engine could not start. Shown as the error state.
     public private(set) var startFailure: String?
@@ -36,6 +38,7 @@ public final class ShellViewModel {
     ) {
         self.engine = engine
         self.offMain = offMain
+        meters = MeterPoller(read: { engine.meterReadings() }, offMain: offMain, mainHop: mainHop)
         snapshot = engine.snapshot
         // Handlers run on the engine queue. They only hop to the main actor and never call the engine.
         observation = engine.observe { [weak self] snapshot in
@@ -106,6 +109,7 @@ public final class ShellViewModel {
     public func shutdown(reply: @escaping @MainActor () -> Void) {
         guard !shuttingDown else { return }
         shuttingDown = true
+        meters.stopAll()
         let engine = engine
         Task { @MainActor in
             await blocking { engine.stopAll() }

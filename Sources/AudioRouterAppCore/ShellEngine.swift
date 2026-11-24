@@ -15,6 +15,14 @@ public protocol ShellEngine: Sendable {
     func setRoutes(_ routes: [Route])
     func setOn(_ on: Bool)
     @discardableResult func stopAll() -> [UUID: [String]]
+    /// The levels of the last interval of every running route. Blocks like `setOn`, so call it off the main
+    /// thread. Reader driven, see `RouteEngine.meterReadings`. Used by `MeterPoller` only.
+    func meterReadings() -> [UUID: MeterReading]
+}
+
+extension ShellEngine {
+    /// A seam without meters reports none.
+    public func meterReadings() -> [UUID: MeterReading] { [:] }
 }
 
 extension RouteEngine: ShellEngine {}
