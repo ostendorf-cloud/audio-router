@@ -11,7 +11,8 @@ public enum ShellStatus: Equatable, Sendable {
     /// Routing is on and nothing needs attention. This includes an empty route list and routes that
     /// wait for their app, which is the normal case.
     case running
-    /// A route runs with a warning, or waits for its destination device.
+    /// A route has an issue of severity `warning`, for example a route that runs with a warning or waits for
+    /// its destination device. A route whose app plays nothing is `info` and stays `running`.
     case warning
     /// A route failed, or the engine could not start.
     case error
@@ -48,24 +49,12 @@ public enum ShellStatus: Equatable, Sendable {
         }
     }
 
-    /// Maps the engine snapshot to the icon state. Precedence: off, then error, warning, running.
-    /// A route that is switched off or waits for its app does not count.
+    /// Maps the engine snapshot to the icon state: off, else the worst issue severity of
+    /// `RouteIssues.worstSeverity`, so the icon and the messages cannot drift. A switched off route counts
+    /// with its failed teardown only (issue 23).
     public static func of(_ snapshot: EngineSnapshot, startFailed: Bool = false) -> ShellStatus {
         guard snapshot.isOn else { return .off }
-        if startFailed { return .error }
-        var worst = ShellStatus.running
-        for status in snapshot.routes {
-            // A failed teardown step can leave a tap or aggregate device behind (issue 23). It counts for
-            // a switched off route too, that is the likely moment.
-            if !status.teardownFailures.isEmpty { worst = .warning }
-            guard status.route.enabled else { continue }
-            switch ShellRowState.of(status.state) {
-            case .failed: return .error
-            case .warning, .waitingForDevice: worst = .warning
-            case .disabled, .waitingForApp, .starting, .running: break
-            }
-        }
-        return worst
+        return RouteIssues.worstSeverity(snapshot, startFailed: startFailed)?.shellStatus ?? .running
     }
 }
 
@@ -79,14 +68,18 @@ public enum ShellRowState: Equatable, Sendable {
     case warning
     case failed
 
-    public static func of(_ state: RouteState) -> ShellRowState {
-        switch state {
-        case .disabled: .disabled
-        case .waitingForDevice: .waitingForDevice
-        case .waitingForApp: .waitingForApp
-        case .starting: .starting
-        case .running(let warnings): warnings.isEmpty ? .running : .warning
-        case .failed: .failed
+    /// A running route shows `warning` only when one of its warnings maps to an issue of severity `warning`.
+    /// A route whose app plays nothing stays `running`, its message says so (issue 61).
+    public static func of(_ status: RouteStatus, in snapshot: EngineSnapshot) -> ShellRowState {
+        switch status.state {
+        case .disabled: return .disabled
+        case .waitingForDevice: return .waitingForDevice
+        case .waitingForApp: return .waitingForApp
+        case .starting: return .starting
+        case .running(let warnings):
+            let issues = RouteIssues.of(warnings, route: status.route, in: snapshot)
+            return issues.contains { $0.severity >= .warning } ? .warning : .running
+        case .failed: return .failed
         }
     }
 

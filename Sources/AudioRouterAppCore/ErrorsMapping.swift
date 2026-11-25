@@ -73,7 +73,7 @@ public enum RouteIssues {
                     action: .none)
             ]
         case .running(let warnings):
-            issues = warnings.map { warning(for: $0, route: route, names: names, snapshot: snapshot) }
+            issues = of(warnings, route: route, in: snapshot)
         case .failed(let failure):
             issues = failed(failure, startError: status.startError, names: names)
         }
@@ -97,11 +97,18 @@ public enum RouteIssues {
             message: "The routing engine could not start. No route runs.", action: .retry, detail: text)
     }
 
-    /// The worst severity over the enabled routes and the engine start, nil when there is no issue at all.
-    /// `ShellStatus.of` stays the source of the icon, a test keeps the two in step.
-    public static func worstSeverity(_ snapshot: EngineSnapshot, startFailure: String? = nil) -> IssueSeverity? {
+    /// The issues of the warnings of a running route. `ShellRowState` reads their severity, so the row text
+    /// and the icon agree.
+    public static func of(_ warnings: [RouteWarning], route: Route, in snapshot: EngineSnapshot) -> [RouteIssue] {
+        let names = Names(route: route, snapshot: snapshot)
+        return warnings.map { warning(for: $0, route: route, names: names, snapshot: snapshot) }
+    }
+
+    /// The worst severity over the routes and the engine start, nil when there is no issue at all. A switched
+    /// off route counts with its failed teardown only. `ShellStatus.of` derives the icon from it.
+    public static func worstSeverity(_ snapshot: EngineSnapshot, startFailed: Bool = false) -> IssueSeverity? {
         var all = snapshot.routes.flatMap { of($0, in: snapshot) }.map(\.severity)
-        if startFailure != nil { all.append(.error) }
+        if startFailed { all.append(.error) }
         return all.max()
     }
 
@@ -163,10 +170,11 @@ public enum RouteIssues {
                         + " permission is missing or denied, or it plays to another device than \(names.device).",
                     action: .openAudioCaptureSettings, detail: detail)
             }
+            // No process of the app outputs audio, so the permission is not the cause. A paused app is
+            // the normal case and keeps the icon at `running` (issue 61). The text claims nothing about
+            // what follows: the engine reads `isRunningOutput` at process events only, not live.
             return RouteIssue(
-                kind: .appNotPlaying, severity: .warning,
-                message: "No audio from \(names.app) for 10 s. It is likely paused or not playing to"
-                    + " \(names.device). If it plays, the audio capture permission may be missing.",
+                kind: .appNotPlaying, severity: .info, message: "\(names.app) plays nothing, likely paused.",
                 action: .none, detail: detail)
         case .tapCheck(let text):
             // The tap check after the first signal: capture worked, so the permission is not the cause.

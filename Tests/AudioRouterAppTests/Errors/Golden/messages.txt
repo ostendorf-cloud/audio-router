@@ -4,7 +4,7 @@ waitingForDevice, not alive | deviceNotResponding | warning | chooseDevice | X32
 waitingForDevice, not default | deviceNotDefault | warning | none | X32 is likely no longer the default output. The route waits until it is the default again. com.example.music plays on the current default output meanwhile.
 waitingForDevice, back | deviceReturning | warning | none | X32 is back. The route waits for it to settle and starts again.
 noSignal, app plays | permissionSilence | warning | openAudioCaptureSettings | No audio from com.example.music for 10 s although it plays. Likely the audio capture permission is missing or denied, or it plays to another device than X32.
-noSignal, app silent | appNotPlaying | warning | none | No audio from com.example.music for 10 s. It is likely paused or not playing to X32. If it plays, the audio capture permission may be missing.
+noSignal, app silent | appNotPlaying | info | none | com.example.music plays nothing, likely paused.
 noSignal, tap check text | tapChannelMismatch | warning | none | Audio likely arrives on other tap channels than the source pair. Check the source channels.
 tapCheck | tapChannelMismatch | warning | none | Audio likely arrives on other tap channels than the source pair. Check the source channels.
 sampleRateMismatch | sampleRateMismatch | warning | none | Sample rates differ: the tap runs at 44100 Hz, X32 at 48000 Hz. The audio is likely affected.
