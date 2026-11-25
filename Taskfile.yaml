@@ -65,6 +65,11 @@ tasks:
         [ -n "${usage}" ] || fail "NSAudioCaptureUsageDescription is empty"
         exe="$(plutil -extract CFBundleExecutable raw "${plist}")"
         [ -f "${app}/Contents/Resources/AppIcon.icns" ] || fail "AppIcon.icns is missing"
+        for state in off running warning error; do
+          for file in "menubar-${state}.png" "menubar-${state}@2x.png"; do
+            [ -f "${app}/Contents/Resources/${file}" ] || fail "${file} is missing"
+          done
+        done
         files="$(find "${app}/Contents/MacOS" -type f)"
         [ "${files}" = "${app}/Contents/MacOS/${exe}" ] || fail "Contents/MacOS must hold only ${exe}"
         # Finds the name anywhere in the bundle. A renamed copy of the prototype is not covered.

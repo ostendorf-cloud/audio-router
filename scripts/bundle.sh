@@ -2,7 +2,7 @@
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
 #
-# Builds dist/audio-router.app: arm64 release build, Info.plist, icon, ad hoc signature.
+# Builds dist/audio-router.app: arm64 release build, Info.plist, icon, menu bar images, ad hoc signature.
 # Needs the Swift toolchain and the macOS tools codesign, iconutil and plutil. No Xcode.
 #   scripts/bundle.sh             build and sign
 #   scripts/bundle.sh --dry-run   print the rendered Info.plist and stop
@@ -74,6 +74,14 @@ printf '%s\n' "${plist}" >"${app}/Contents/Info.plist"
 plutil -lint "${app}/Contents/Info.plist"
 
 iconutil -c icns "${root}/Resources/AppIcon.iconset" -o "${app}/Contents/Resources/AppIcon.icns"
+
+# Menu bar template images, one per ShellStatus at 1x and 2x. The app loads them with
+# Bundle.main.image(forResource:). That is the plain app bundle layout and does not depend on
+# the resource bundle and accessor that SwiftPM generates for target resources.
+for state in off running warning error; do
+  cp "${root}/Resources/Branding/menubar-${state}.png" "${root}/Resources/Branding/menubar-${state}@2x.png" \
+    "${app}/Contents/Resources/"
+done
 
 # Ad hoc signature, hardened runtime, no entitlements file and so no sandbox entitlement.
 codesign --force --sign - --options runtime "${app}"

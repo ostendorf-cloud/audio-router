@@ -36,7 +36,13 @@ The global baseline already applies here and is not repeated below.
   `Info.plist` next to it is embedded into the binary, see below.
 - `scripts/bundle.sh` and `Resources/` build `dist/audio-router.app` (`task bundle`, `task bundle:verify`,
   `task bundle:zip`). Only the `AudioRouterApp` product goes in, never `audio-router-proto`.
-  `Resources/AppIcon.iconset` is a placeholder. `task bundle:verify` is not in `task check`, the `bundle` CI job runs it.
+  `task bundle:verify` is not in `task check`, the `bundle` CI job runs it.
+- `Resources/Branding` holds the SVG sources of the app icon and the menu bar symbol, see its README.
+  `scripts/render-branding.sh` renders them into `Resources/AppIcon.iconset` and the menu bar PNGs next to the SVGs.
+  The PNGs are committed. Render again after every SVG change.
+  `ShellStatus.imageName` names the menu bar image of each status. `bundle.sh` copies the PNGs into
+  `Contents/Resources`, and `ShellMenuBarIcon` loads them as template images.
+  Outside the bundle, for example with `swift run`, it falls back to the SF Symbol `ShellStatus.symbolName`.
 - `Tests/RouterCoreTests` has the unit tests (Swift Testing) and the fakes.
   `Tests/RouterCoreAudioTests` runs the real time code on in memory buffer lists.
 - `docs/prototype-findings.md` is a template the owner fills from a real Mac. Never fill it with guesses.

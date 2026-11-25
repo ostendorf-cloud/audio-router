@@ -15,8 +15,7 @@ struct AudioRouterMenuBarApp: App {
         MenuBarExtra {
             ShellMenu(model: model)
         } label: {
-            Image(systemName: model.status.symbolName)
-                .accessibilityLabel(model.status.label)
+            ShellMenuBarIcon(status: model.status)
         }
         Settings {
             ShellSettings()
