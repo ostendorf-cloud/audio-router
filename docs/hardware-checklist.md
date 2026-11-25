@@ -485,7 +485,7 @@ expected result says `to be recorded, no reference yet`.
 - Do (f, paused app): with the permission granted, pause the app, then switch its route on and wait
   15 seconds. The note shows only while no audio arrived since the route started.
   Expected: the menu bar icon stays the speaker, not the triangle. The route line reads `Running`,
-  not `Running with warning`. Under it the plain text `<app> plays nothing, likely paused. ...`
+  not `Running with warning`. Under it the plain text `<app> plays nothing, likely paused.`
   shows without a button. Play the app and the note goes away. Record the text.
 - Result:
 - Notes:

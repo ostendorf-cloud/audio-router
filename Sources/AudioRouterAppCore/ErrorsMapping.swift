@@ -171,11 +171,10 @@ public enum RouteIssues {
                     action: .openAudioCaptureSettings, detail: detail)
             }
             // No process of the app outputs audio, so the permission is not the cause. A paused app is
-            // the normal case and keeps the icon at `running` (issue 61).
+            // the normal case and keeps the icon at `running` (issue 61). The text claims nothing about
+            // what follows: the engine reads `isRunningOutput` at process events only, not live.
             return RouteIssue(
-                kind: .appNotPlaying, severity: .info,
-                message: "\(names.app) plays nothing, likely paused."
-                    + " The route passes its audio on as soon as it plays.",
+                kind: .appNotPlaying, severity: .info, message: "\(names.app) plays nothing, likely paused.",
                 action: .none, detail: detail)
         case .tapCheck(let text):
             // The tap check after the first signal: capture worked, so the permission is not the cause.

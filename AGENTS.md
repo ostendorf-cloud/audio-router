@@ -217,6 +217,8 @@ Nothing active prints the full permission warning only.
     `ShellRowState.of` reads the severity of a running route's warnings the same way.
   - Silence of an app that plays nothing (`appNotPlaying`, likely paused) is `info`: no triangle, row `Running`
     (issue 61). Silence while the app plays stays a warning, the permission may be missing.
+    Known limit: the snapshot reads `isRunningOutput` at app start and helper events only, not live.
+    So the text claims nothing about what happens when the app plays again.
 - The whole package builds with the Command Line Tools alone, without Xcode (issue 58).
   No source file may use a macro whose compiler plugin ships with Xcode only.
   With the macOS 27 SDK these are `@State`, `@Entry`, `@Animatable`, `@AnimatableIgnored` (plugin

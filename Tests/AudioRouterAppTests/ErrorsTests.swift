@@ -540,6 +540,14 @@ private let expectedIcons: [String: ShellStatus] = [
         #expect(ShellRowState.of(shot.routes[0], in: shot) == .warning)
     }
 
+    @Test func aFailedEngineStartBeatsAPausedApp() {
+        let silence = RouteState.running(warnings: [.noSignal(["warning: no audio arrived"])])
+        let paused = snapshot(silence, apps: [app(playing: false)])
+        #expect(ShellStatus.of(paused) == .running)
+        #expect(RouteIssues.worstSeverity(paused, startFailed: true) == .error)
+        #expect(ShellStatus.of(paused, startFailed: true) == .error)
+    }
+
     @Test func aFailedTeardownIsAWarningOnTheIcon() {
         #expect(ShellStatus.of(snapshot(.running(warnings: []), teardown: ["t"])) == .warning)
         #expect(ShellStatus.of(snapshot(.failed(.refused(message: "x")), teardown: ["t"])) == .error)
