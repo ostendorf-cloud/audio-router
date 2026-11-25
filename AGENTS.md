@@ -212,7 +212,11 @@ Nothing active prints the full permission warning only.
   - A message says "likely" where the cause is inferred. The permission is always inferred: no status query is
     verified and a denied tap may deliver silence. The settings button opens the generic privacy pane, the anchor of
     the audio capture list is not verified.
-  - The menu bar icon stays `ShellStatus.of`. A test keeps the worst issue severity in step with it.
+  - `ShellStatus.of` derives the menu bar icon from `RouteIssues.worstSeverity`, so the two cannot drift.
+    `ErrorsTests` writes the icon of every fixture out, so a changed severity shows as a changed icon.
+    `ShellRowState.of` reads the severity of a running route's warnings the same way.
+  - Silence of an app that plays nothing (`appNotPlaying`, likely paused) is `info`: no triangle, row `Running`
+    (issue 61). Silence while the app plays stays a warning, the permission may be missing.
 - The whole package builds with the Command Line Tools alone, without Xcode (issue 58).
   No source file may use a macro whose compiler plugin ships with Xcode only.
   With the macOS 27 SDK these are `@State`, `@Entry`, `@Animatable`, `@AnimatableIgnored` (plugin

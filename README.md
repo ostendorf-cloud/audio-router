@@ -69,7 +69,9 @@ Route the audio of single macOS apps to channel pairs of any output device.
 - The menu bar icon shows one state for the whole app.
   - Off, the symbol with a slash: the Routing toggle is off.
   - Running, the plain symbol: routing is on and nothing needs attention.
+    A route whose app plays nothing, for example a paused app, stays Running and shows a plain note.
   - Warning, a small triangle at the lower right: a route runs with a warning or waits for its device.
+    Silence while the app plays is a warning, the capture permission may be missing.
   - Error, a small round mark at the lower right: a route failed or the engine could not start.
 - The menu has a Routing toggle, one toggle per route and Quit.
   - Each route shows its state and, while the menu is open, live levels as text.
