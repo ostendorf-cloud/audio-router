@@ -46,6 +46,7 @@ The global baseline already applies here and is not repeated below.
 The Settings toggle registers `SMAppService.mainApp` through the `LoginItemService` protocol.
 `LoginItemViewModel` in `AudioRouterAppCore` maps the four statuses and an error to a toggle and a hint.
 The live service sits in `Sources/AudioRouterApp/LoginItemLive.swift`, because the core has no ServiceManagement import.
+The view takes its model from `LoginItemContext.model` in the same file, not from `@State` (see the constraints).
 Settings reads the real status on each appear and each time the app becomes active, because the Settings window
 is kept on close and `onAppear` may not fire again. It only registers the app. Restoring routes is the engine's job.
 Not verified: the behaviour with the ad hoc build, and from outside `/Applications`.
@@ -58,7 +59,7 @@ swift test
 task check
 ```
 
-`task check` runs format, license, RouterCore import, markdown, YAML and workflow lint.
+`task check` runs format, license, RouterCore import, SwiftUI macro, markdown, YAML and workflow lint.
 Then it builds and tests.
 `swift build` builds all five targets.
 `task --list` shows the single targets.
@@ -206,6 +207,21 @@ Nothing active prints the full permission warning only.
     verified and a denied tap may deliver silence. The settings button opens the generic privacy pane, the anchor of
     the audio capture list is not verified.
   - The menu bar icon stays `ShellStatus.of`. A test keeps the worst issue severity in step with it.
+- The whole package builds with the Command Line Tools alone, without Xcode (issue 58).
+  No source file may use a SwiftUI macro whose compiler plugin ships with Xcode only.
+  With the macOS 27 SDK these are `@State`, `@Entry`, `@Animatable`, `@AnimatableIgnored` (plugin
+  `SwiftUIMacros`), `@Previewable` and `#Preview` (plugin `PreviewsMacros`).
+  The Observation macros `@Observable` and `@Bindable` ship with the Command Line Tools and are fine.
+  View state goes into an `@Observable` model in `AudioRouterAppCore` with a test, for example
+  `EditorViewModel.pendingDelete`. A model the view owns comes from a `@MainActor` context like
+  `EditorContext` or `LoginItemContext`.
+  - `scripts/lint-swiftui-macros.sh` (`task lint:swiftui-macros`, CI job `swiftui-macros`) fails with file, line and
+    reason when `Sources` holds one of them. The list sits at the top of the script. Extend it when a new SDK adds a
+    macro from a plugin the Command Line Tools lack. Find them with `grep -rn externalMacro` in the SwiftUI and
+    SwiftUICore swiftinterface files of `/Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk`.
+  - It is a line check that drops `//` comments only. A macro name in a block comment or string fails closed.
+  - `scripts/lint-swiftui-macros_test.sh` runs it on temporary trees, and the task runs that test first.
+  - CI builds with Xcode, so the `build` job does not catch a macro. Only this lint does.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.
 - Tests use no network, no audio hardware and no permission. New device or process code goes behind a protocol.
@@ -251,7 +267,7 @@ Still missing:
 - A ruleset on `main`: required checks, merge method, no direct push.
   The check names below come from the job ids in `checks.yaml` and the called workflows' job names.
   Copy the exact names from a pull request run before writing the ruleset.
-  - `fmt`, `build`, `test`, `markdownlint`, `yamllint`, `actionlint`
+  - `fmt`, `build`, `test`, `swiftui-macros`, `markdownlint`, `yamllint`, `actionlint`
   - `renovate-config / Renovate configuration is valid`
   - `license / License headers`
   - `signoff / Every commit carries a DCO sign-off`
