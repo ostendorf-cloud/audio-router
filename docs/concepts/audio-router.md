@@ -168,6 +168,7 @@ The scope of the first app release, 0.1.0, is fixed in the section Decisions for
 - Development target: macOS 27. The lowest supported version is set in the decisions for 0.1.0.
 - Signing: ad hoc, the public 0.1.0 release included (D11). A Developer ID and notarisation follow
   in phase 4, when the owner has an Apple developer account.
+  Superseded by issue 67: the release is signed with a Developer ID and notarized.
 - Distribution: public open source on GitHub.
 
 ### Decisions for 0.1.0
@@ -196,6 +197,7 @@ Made by the owner on 2026-11-20. Each line names the reason.
   Assumed: no usable audio device on the CI runner.
 - D11 a new permission prompt per release is accepted until a Developer ID exists.
   TCC behaviour with ad hoc signatures is not verified, see Unverified for the app.
+  Superseded by issue 67: the release is signed with a Developer ID and notarized.
 
 ## Alternatives
 

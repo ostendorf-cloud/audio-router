@@ -2,16 +2,21 @@ name: app-release
 
 # Builds the app bundle and attaches an arm64 zip and its SHA-256 file to a GitHub release.
 #
-# Signing: ad hoc only. There is no Developer ID Application certificate and no notarisation.
-# This is a known blocker, not a choice. Notarisation needs a Developer ID Application certificate
-# from the paid Apple Developer Program, plus an App Store Connect API key or an app specific
-# password as secrets set through the infrastructure repository. Then the job would run
-# `notarytool submit --wait` and `stapler staple`. Until then each release triggers a new
-# permission prompt and Gatekeeper blocks the first open. The README says so.
-# The bundle job uses no secret. The homebrew job mints a token for the tap from the release app.
+# Signing: a release (event release) signs with the Developer ID Application certificate, notarizes
+# the zip with an App Store Connect team API key and staples the ticket. The secrets come from the
+# infrastructure repository: APPLE_CERT_P12_BASE64, APPLE_CERT_PASSWORD, APPLE_NOTARY_KEY_ID,
+# APPLE_NOTARY_ISSUER_ID, APPLE_NOTARY_KEY_P8_BASE64, and the variable APPLE_SIGNING_IDENTITY.
+# A release fails closed: an empty secret or variable stops the job, it never falls back to ad hoc.
+# A manual dry run references no signing secret and builds ad hoc, like the bundle job of checks.yaml.
+# Each secret reaches only the step that needs it, through that step's env. The scripts print no
+# secret value. The certificate lives in a temporary keychain with a random password, the decoded
+# .p12 and .p8 files in RUNNER_TEMP folders only the runner user can read. The cleanup step removes
+# them on every outcome. The homebrew job mints a token for the tap from the release app.
 #
-# The build is `task bundle`, `task bundle:verify` and `task bundle:zip` (scripts/bundle.sh and Taskfile.yaml).
-# A runner has no usable audio device, so the job builds and verifies only.
+# The build is `task bundle`, `task bundle:verify`, `task bundle:zip` and on a release
+# `task bundle:notarize` (scripts/bundle.sh, scripts/sign-app.sh, scripts/notarize.sh, Taskfile.yaml).
+# The keychain is scripts/signing-keychain.sh. A runner has no usable audio device, so the job builds
+# and verifies only.
 #
 # Uploading to an already published release fails when GitHub's immutable releases setting is on
 # for this repository. The owner confirms that setting, see the pull request that added this file.
@@ -53,7 +58,8 @@ jobs:
     # A manual run with a cask-tag only pushes the cask, see the homebrew job.
     if: github.event_name == 'release' || inputs.cask-tag == ''
     runs-on: macos-latest
-    timeout-minutes: 30
+    # The notary wait is capped at 30 minutes, see bundle:notarize.
+    timeout-minutes: 60
     permissions:
       contents: write
     # The sha256 of the zip this job built and uploaded, for the homebrew job.
@@ -63,6 +69,9 @@ jobs:
       # Every event value reaches a script through env, never inline in a `run:`.
       # Empty on a dry run, where the version comes from git describe.
       RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+      # Only a release signs, notarizes and sees the signing secrets. Decided by the event alone, so a
+      # missing secret fails the release instead of switching it to ad hoc.
+      SIGNED_RELEASE: ${{ github.event_name == 'release' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -83,8 +92,28 @@ jobs:
           set -euo pipefail
           [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "unexpected tag: ${RELEASE_TAG}" >&2; exit 1; }
 
+      # The keychain path goes to GITHUB_ENV first, so the cleanup step finds a half created keychain too.
+      - name: Import the signing certificate
+        if: env.SIGNED_RELEASE == 'true'
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set +x
+          set -euo pipefail
+          SIGNING_KEYCHAIN="${RUNNER_TEMP}/audio-router-signing.keychain-db"
+          export SIGNING_KEYCHAIN
+          echo "SIGNING_KEYCHAIN=${SIGNING_KEYCHAIN}" >> "${GITHUB_ENV}"
+          scripts/signing-keychain.sh create
+
       # VERSION is set on a release only. On a dry run the branch name would fail the version check.
+      # SIGNING_REQUIRED makes sign-app.sh refuse an ad hoc signature on a release.
       - name: Build, verify and zip the app bundle
+        env:
+          SIGNING_IDENTITY: ${{ env.SIGNED_RELEASE == 'true' && vars.APPLE_SIGNING_IDENTITY || '' }}
+          SIGNING_REQUIRED: ${{ env.SIGNED_RELEASE }}
+          VERIFY_SIGNATURE: ${{ env.SIGNED_RELEASE == 'true' && 'developer-id' || 'any' }}
         run: |
           set -euo pipefail
           if [ -n "${RELEASE_TAG}" ]; then
@@ -94,6 +123,37 @@ jobs:
           task bundle
           task bundle:verify
           task bundle:zip
+
+      # The notary log on a rejection holds the findings for the submitted files, no credential.
+      - name: Notarize and staple
+        if: env.SIGNED_RELEASE == 'true'
+        env:
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          NOTARY_TIMEOUT: 30m
+        run: |
+          set +x
+          set -euo pipefail
+          task bundle:notarize
+
+      # The submitted zip carries no ticket. The final zip is made from the stapled app, and bundle:zip
+      # verifies its unzipped copy against Gatekeeper and the ticket too.
+      - name: Verify the stapled app and zip it again
+        if: env.SIGNED_RELEASE == 'true'
+        env:
+          SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          VERIFY_SIGNATURE: notarized
+        run: |
+          set -euo pipefail
+          task bundle:verify
+          task bundle:zip
+
+      # Runs on every outcome, before any upload. A dry run has no keychain, the script then only
+      # removes leftover key folders, of which there are none.
+      - name: Remove the signing keychain and key files
+        if: always()
+        run: scripts/signing-keychain.sh delete
 
       - name: Write the checksum
         id: asset

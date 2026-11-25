@@ -32,7 +32,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: swift test
 
-  # Builds the arm64 release bundle with ad hoc signing and verifies it. Needs only task, the
+  # Builds the arm64 release bundle with ad hoc signing and verifies it. Never sees a signing secret,
+  # so a pull request from a fork builds the same way. Needs only task, the
   # Swift toolchain and the macOS tools of the runner. Not part of task check: a release build
   # is slow.
   bundle:
@@ -44,6 +45,20 @@ jobs:
         with:
           install_args: task
       - run: task bundle bundle:verify bundle:zip
+
+  # The tests of the signing scripts, with fake codesign, security, spctl and xcrun. No certificate,
+  # no network, no secrets. macOS, so base64 --decode and plutil are the ones the release job uses.
+  signing:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
+        with:
+          install_args: task
+      - run: task test:signing
 
   # The CI runners build with Xcode, which has the SwiftUI macro plugins. This check keeps the
   # sources buildable with the Command Line Tools alone. It needs bash, awk and find only.
