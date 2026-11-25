@@ -109,7 +109,7 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
   10 seconds). Which one happens is not measured, no reference yet (`AGENTS.md`, known limits).
 - Expected: the error text names the right place in System Settings. The app plays normally on its
   own output, and no tap or aggregate device is left behind.
-- Then grant the permission again. Use the retry action of the menu, or switch the route off
+- Then grant the permission again. Switch the route off
   and on. The route reaches `running`.
 - Result:
 - Notes:
@@ -388,6 +388,8 @@ expected result says `to be recorded, no reference yet`.
   Open Settings and close it. Switch the app off in System Settings, Login Items, then open
   Settings again without restarting the app. Switch it on there again and reopen Settings once more.
   If macOS shows the approval state (status requires approval), look at the Startup section.
+  The approval state may not be reachable on demand. If macOS does not show it, write
+  `not reproduced` in Notes for that part.
 - Expected: after the login the app starts, the menu bar icon shows and the stored routes come back
   and reach `running` once their device and app are present. This is not measured for an ad hoc
   signed build, to be recorded, no reference yet.
@@ -411,19 +413,18 @@ expected result says `to be recorded, no reference yet`.
 - Expected, unity: peak about -20.0 dBFS and RMS about -23 dBFS. A sine with a peak of -20 dBFS
   has an RMS of -23.01 dBFS. That is arithmetic. The measured value is what the owner records.
   Unity within 0.2 dB is the criterion of the findings (step 5).
-  The app shows the peak number. Record where the RMS shows, if it does.
-- Do (polling stops): with the menu and the window closed, find the process id and watch it:
-
-  ```sh
-  pgrep -x audio-router
-  top -pid <pid>
-  ```
-
-  Read the CPU and wakeups columns, or use Activity Monitor. Do the same with the menu open and
+  In the window the light bar is the peak, the solid bar in front is the RMS, and the number is
+  the peak (`MeterViews.swift`). Read the RMS from the solid bar.
+- Do (polling stops): with the menu and the window closed, watch the app in Activity Monitor:
+  the columns CPU % and Idle Wake Ups, on the CPU tab. Do the same with the menu open and
   with the Settings window open.
+  As a shell check the pid shows with `pgrep -x audio-router`. This line is not verified:
+  default `top` has no wakeups column, `top -pid <pid> -stats pid,command,cpu,idlew` is a
+  candidate for it.
 - Expected: near 0 percent CPU when everything is closed. About 15 wakeups per second while the menu
-  or the window is open. The wakeups figure is a design value (about 15 Hz), not a measurement.
-  Record the real numbers, to be recorded, no reference yet.
+  or the window is open, because the poller interval is 1/15 s (`MeterPoller.defaultInterval`).
+  That is the configured interval, not a measurement. Record the real numbers,
+  to be recorded, no reference yet.
 - Not verified, record what you see:
   - Whether the tracking notification filter picks the right menu.
   - Whether open menu items redraw their text while the menu is open.
@@ -452,18 +453,29 @@ expected result says `to be recorded, no reference yet`.
   route toggle.
 - Do (a, permission denied): remove or deny the capture permission for the app, as in step 3.
   Enable the route.
-  Expected: the message names the capture permission and says it is likely missing or denied.
-  The button `Open System Settings` opens System Settings. The exact pane anchor is not verified,
-  the app opens the generic privacy pane. Record what opens, to be recorded, no reference yet.
+  Which failure follows is not measured (step 3). Expected is one of two, each with the button
+  `Open System Settings` and not `Retry now`:
+  - Silence: after 10 seconds the text `No audio from <app> for 10 s although it plays. Likely
+    the audio capture permission is missing or denied, ...`.
+  - A failed start whose error text names `(create tap)` or `(create aggregate)`: the text
+    `The route could not start. The audio capture permission may be missing or denied.` with the
+    attempt or retries stopped note.
+  Any other failed start shows `The route could not start.` with `Retry now`. Record the exact
+  text and button you get. The button opens the generic privacy pane. The anchor of the audio
+  capture list is not verified. Record what opens, to be recorded, no reference yet.
+  To recover, grant the permission, then switch the route off and on as in step 3.
 - Do (b, device gone): unplug the X32. Expected: a text that the device is likely unplugged or
-  switched off, and that the route waits for it. Record the text.
+  switched off, and that the route waits for it, with the button `Choose device`.
+  Record the text.
 - Do (c, default moved): with the X32 plugged in, move the default output to the speakers (step 8f).
   Expected: a different text, that the device is likely no longer the default output and that the
-  app plays on the current default output meanwhile. Record both texts. They must differ.
-- Do (d, retry): get a route into a held failure state, for example the denial of (a) until the
-  text says retries stopped. Grant the permission again and press `Retry now`.
-  Expected: the route starts again and reaches `running`.
-  Which failure holds the route is not measured (step 3), record what you got.
+  app plays on the current default output meanwhile, without a button.
+  Record both texts. They must differ.
+- Do (d, retry): `Retry now` shows for a failed start that is not about the permission, the device
+  or the channels, for example an app without an audio process that was refused, and for a failed
+  engine start. Such a failure is hard to cause on purpose. If one shows, press `Retry now`.
+  Expected: the route starts again and reaches `running` once the cause is gone. If you cannot
+  cause it, write `not reproduced` in Notes and leave the boxes empty. Do not fake it.
 - Do (e, failed teardown): this is hard to cause on purpose. If a teardown step fails, expected is
   a warning `<n> teardown step(s) failed.` with the hint that a tap or aggregate device likely
   stays until the app quits, and a warning on the menu bar icon. If you cannot cause it, write
@@ -496,9 +508,9 @@ expected result says `to be recorded, no reference yet`.
 ### 20. Settings opens in front
 
 - Precondition: another app has the focus and its window covers the screen centre.
-- Do: open the menu and choose `Settings...`. Do it again with the window already open behind
-  another app. While the menu is open, switch a route off from another place, for example start or
-  quit its app, and watch the rows.
+- Do: open the menu and choose `Settings…` (with an ellipsis). Do it again with the window already
+  open behind another app. While the menu is open, change a route state from another place, for
+  example quit its app (the route waits for the app), and watch the rows.
 - Expected: Settings opens in front of the other windows. The app is an accessory app, so the menu
   action calls `NSApp.activate()` before `openSettings()`. Record whether it works each time.
 - Expected: the menu rows update while the menu is open, to be recorded, no reference yet.
