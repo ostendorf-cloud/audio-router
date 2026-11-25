@@ -88,6 +88,19 @@ Route the audio of single macOS apps to channel pairs of any output device.
 ## Development
 
 - Build and test with `swift build` and `swift test`. `task check` runs everything CI runs.
+- Building from source needs the Command Line Tools only, Xcode is not required.
+  - The sources use no SwiftUI macro such as `@State`, `@Entry` or `#Preview`.
+    Their compiler plugins ship with Xcode only, so the Command Line Tools cannot build them.
+  - `task lint:swiftui-macros` checks that, and CI runs it.
+  - Lines like `ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found`
+    are harmless. SwiftPM passes search paths that this Command Line Tools install does not have.
+  - Creating the directories may silence them. This is optional and not verified:
+
+    ```sh
+    sudo mkdir -p /Library/Developer/CommandLineTools/Developer/Library/Frameworks \
+      /Library/Developer/CommandLineTools/Developer/usr/lib
+    ```
+
 - Build the app bundle:
   - `task bundle` builds `dist/audio-router.app`, arm64, ad hoc signed.
   - `task bundle:verify` checks the plist, signature, architecture and that the prototype is absent.

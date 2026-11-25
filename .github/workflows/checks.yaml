@@ -45,6 +45,18 @@ jobs:
           install_args: task
       - run: task bundle bundle:verify bundle:zip
 
+  # The CI runners build with Xcode, which has the SwiftUI macro plugins. This check keeps the
+  # sources buildable with the Command Line Tools alone. It needs bash, awk and find only.
+  swiftui-macros:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
+        with:
+          install_args: task
+      - run: task lint:swiftui-macros
+
   markdownlint:
     runs-on: ubuntu-latest
     timeout-minutes: 10

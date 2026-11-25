@@ -117,6 +117,13 @@ tasks:
           END { exit bad }
         ' {} + || { echo "RouterCore may import only Foundation and Darwin" >&2; exit 1; }
 
+  lint:swiftui-macros:
+    desc: No SwiftUI macro whose plugin ships with Xcode only, so the app builds with the Command Line Tools
+    # The test of the script runs first, so a broken check cannot pass silently.
+    cmds:
+      - scripts/lint-swiftui-macros_test.sh
+      - scripts/lint-swiftui-macros.sh Sources
+
   lint:markdown:
     desc: Markdown lint
     cmds:
@@ -138,6 +145,7 @@ tasks:
       - task: lint:fmt
       - task: lint:license
       - task: lint:core-imports
+      - task: lint:swiftui-macros
       - task: lint:markdown
       - task: lint:yaml
       - task: lint:actions

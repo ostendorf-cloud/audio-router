@@ -260,6 +260,76 @@ import Testing
         #expect(rig.model.failure == "disk full")
     }
 
+    @Test func requestDeleteAsksForTheListedRowOnly() {
+        let first = EditorSamples.route(1, name: "One", pair: 1)
+        let rig = Rig(stored: [first])
+        #expect(rig.model.pendingDelete == nil)
+        rig.model.requestDelete(UUID())
+        #expect(rig.model.pendingDelete == nil)
+        rig.model.requestDelete(first.id)
+        #expect(rig.model.pendingDelete?.id == first.id)
+        #expect(rig.model.pendingDelete?.title == "One")
+        #expect(rig.store.stored == [first])
+        #expect(rig.engine.routeCalls.isEmpty)
+    }
+
+    @Test func aSecondRequestReplacesTheFirstAndAnUnlistedIdClearsIt() {
+        let first = EditorSamples.route(1, name: "One", pair: 1)
+        let second = EditorSamples.route(2, name: "Two", pair: 3)
+        let rig = Rig(stored: [first, second])
+        rig.model.requestDelete(first.id)
+        rig.model.requestDelete(second.id)
+        #expect(rig.model.pendingDelete?.id == second.id)
+        rig.model.requestDelete(UUID())
+        #expect(rig.model.pendingDelete == nil)
+    }
+
+    @Test func confirmDeleteOfARouteRemovedMeanwhileWritesTheUnchangedList() {
+        let first = EditorSamples.route(1, name: "One", pair: 1)
+        let second = EditorSamples.route(2, name: "Two", pair: 3)
+        let rig = Rig(stored: [first, second])
+        rig.model.requestDelete(first.id)
+        // Another writer removed the route while the question was open.
+        try? rig.store.save([second])
+        rig.model.reload()
+        #expect(rig.model.confirmDelete(first.id))
+        #expect(rig.model.pendingDelete == nil)
+        #expect(rig.store.saves == [[second], [second]])
+        #expect(rig.engine.routeCalls == [[second]])
+        #expect(rig.model.routes == [second])
+    }
+
+    @Test func confirmDeleteDeletesAndClearsTheQuestion() {
+        let first = EditorSamples.route(1, name: "One", pair: 1)
+        let second = EditorSamples.route(2, name: "Two", pair: 3)
+        let rig = Rig(stored: [first, second])
+        rig.model.requestDelete(first.id)
+        #expect(rig.model.confirmDelete(first.id))
+        #expect(rig.model.pendingDelete == nil)
+        #expect(rig.store.stored == [second])
+        #expect(rig.engine.routeCalls == [[second]])
+    }
+
+    @Test func confirmDeleteAfterTheDialogClosedStillDeletesTheShownRow() {
+        let first = EditorSamples.route(1, name: "One", pair: 1)
+        let rig = Rig(stored: [first])
+        rig.model.requestDelete(first.id)
+        // SwiftUI may reset the binding before it runs the button action.
+        rig.model.cancelDelete()
+        #expect(rig.model.confirmDelete(first.id))
+        #expect(rig.store.stored.isEmpty)
+    }
+
+    @Test func cancelDeleteClearsTheQuestionAndDeletesNothing() {
+        let first = EditorSamples.route(1, name: "One", pair: 1)
+        let rig = Rig(stored: [first])
+        rig.model.requestDelete(first.id)
+        rig.model.cancelDelete()
+        #expect(rig.model.pendingDelete == nil)
+        #expect(rig.store.stored == [first])
+        #expect(rig.engine.routeCalls.isEmpty)
+    }
+
     // MARK: - List and providers
 
     @Test func rowsNameTheDeviceAndThePair() {

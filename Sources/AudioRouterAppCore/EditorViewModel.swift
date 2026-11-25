@@ -29,6 +29,9 @@ public final class EditorViewModel {
     public private(set) var validationShown = false
     /// Why the last save or delete did not write. Shown below the form or the list.
     public private(set) var failure: String?
+    /// The row the list asks to confirm a delete for. The view holds no state of its own, because
+    /// `@State` is a macro whose plugin ships with Xcode only.
+    public private(set) var pendingDelete: EditorRouteRow?
 
     public init(
         store: any EditorRouteStoring, engine: any ShellEngine, devices: any DeviceProviding,
@@ -206,6 +209,25 @@ public final class EditorViewModel {
             failure = String(describing: error)
             return false
         }
+    }
+
+    /// Asks to confirm the delete of a listed route and replaces an earlier question. An id that is not
+    /// listed asks nothing and clears an earlier question.
+    public func requestDelete(_ id: UUID) {
+        pendingDelete = rows.first { $0.id == id }
+    }
+
+    /// Deletes the confirmed route and closes the question. The dialog passes the row it shows, so a
+    /// dismiss that runs before the button action cannot lose the id.
+    @discardableResult
+    public func confirmDelete(_ id: UUID) -> Bool {
+        pendingDelete = nil
+        return delete(id)
+    }
+
+    /// Closes the question and deletes nothing.
+    public func cancelDelete() {
+        pendingDelete = nil
     }
 
     /// Removes the route from the store and from the engine, which stops it.
