@@ -80,8 +80,10 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 - Then open it with one of the three documented ways.
   Right click, Open, or System Settings, Privacy & Security, Open Anyway, or
   `xattr -dr com.apple.quarantine <path to the app>`.
-- Expected: after that the app starts, a speaker icon appears in the menu bar and no Dock icon
+- Expected: after that the app starts, the audio-router symbol appears in the menu bar and no Dock icon
   (`LSUIElement`). The menu has a Quit item.
+  Switch System Settings, Appearance between Light and Dark: the symbol follows the menu bar colour and stays
+  readable. Switch Routing off: the symbol gets a slash.
   Record the exact Gatekeeper text and which way you used.
 - Result:
 - Notes:

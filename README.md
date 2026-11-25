@@ -48,13 +48,13 @@ Route the audio of single macOS apps to channel pairs of any output device.
   - Right click the app, choose Open, then confirm. Assumed, not verified.
   - System Settings, Privacy & Security, then Open Anyway. Not verified.
   - In a terminal: `xattr -dr com.apple.quarantine /Applications/audio-router.app`. Not verified.
-  - Expected after any way: the speaker icon appears in the menu bar. Not verified.
+  - Expected after any way: the audio-router symbol appears in the menu bar. Not verified.
 - Each new release may ask for the audio capture permission again, until a Developer ID exists.
   Not verified.
 
 ## Use
 
-- After the first open a speaker icon appears in the menu bar.
+- After the first open the audio-router symbol appears in the menu bar: a wave that splits into two lines.
 - On the first route, macOS asks to allow audio capture.
   The prompt shows the usage text of the app. Which name it shows is not verified.
   - The app cannot read the permission status.
@@ -67,10 +67,10 @@ Route the audio of single macOS apps to channel pairs of any output device.
   - Save. Switching a route on or off is a toggle in the menu. A save does not change that state.
 - Set the destination device as the system default output. See the limits above.
 - The menu bar icon shows one state for the whole app.
-  - Off: the Routing toggle is off.
-  - Running: routing is on and nothing needs attention.
-  - Warning: a route runs with a warning or waits for its device.
-  - Error: a route failed or the engine could not start.
+  - Off, the symbol with a slash: the Routing toggle is off.
+  - Running, the plain symbol: routing is on and nothing needs attention.
+  - Warning, a small triangle at the lower right: a route runs with a warning or waits for its device.
+  - Error, a small round mark at the lower right: a route failed or the engine could not start.
 - The menu has a Routing toggle, one toggle per route and Quit.
   - Each route shows its state and, while the menu is open, live levels as text.
   - An issue shows a message and a button, for example open System Settings or retry.
