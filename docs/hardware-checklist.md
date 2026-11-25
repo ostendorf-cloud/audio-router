@@ -108,6 +108,14 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
   Reference: to be recorded, no reference yet (concept, Unverified for the app).
 - After Allow: the route reaches `running`.
   The app is silent on its normal output while it routes.
+- Expected: the app is audible on the destination channel pair.
+- Run this step on the release candidate asset of a notarized release before the release is announced.
+  The release is signed with the hardened runtime and no `com.apple.security.device.audio-input`
+  entitlement. Whether the tap path needs it is not verified (issue 67).
+- If the notarized build reaches `running` but stays silent while the app plays: add the entitlement
+  `com.apple.security.device.audio-input` (Hardened Runtime, Resource Access) to
+  `Resources/AudioRouter.entitlements` in this repository, with this measurement as the reason in the comment of
+  that file. Open a pull request for it and cut a new release candidate. Run this step again.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
