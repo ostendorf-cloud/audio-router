@@ -8,7 +8,7 @@ name: app-release
 # password as secrets set through the infrastructure repository. Then the job would run
 # `notarytool submit --wait` and `stapler staple`. Until then each release triggers a new
 # permission prompt and Gatekeeper blocks the first open. The README says so.
-# No secret is used here.
+# The bundle job uses no secret. The homebrew job mints a token for the tap from the release app.
 #
 # The build is `task bundle`, `task bundle:verify` and `task bundle:zip` (scripts/bundle.sh and Taskfile.yaml).
 # A runner has no usable audio device, so the job builds and verifies only.
@@ -16,26 +16,49 @@ name: app-release
 # Uploading to an already published release fails when GitHub's immutable releases setting is on
 # for this repository. The owner confirms that setting, see the pull request that added this file.
 #
-# A dry run: start this workflow by hand (workflow_dispatch) on a branch. It builds and
-# uploads the two files as a workflow artifact and does not touch any release.
+# A dry run: start this workflow by hand (workflow_dispatch) on a branch with an empty cask-tag.
+# It builds and uploads the two files as a workflow artifact and does not touch any release.
+#
+# After the upload, the homebrew job pushes Casks/audio-router.rb to ostendorf-cloud/homebrew-tap,
+# see scripts/publish-homebrew-cask.sh. A manual run from the default branch with cask-tag set
+# skips the build and pushes the cask of that published release again.
 
 on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      cask-tag:
+        description: Published release tag to push the cask for, such as v0.1.0, from the default branch only. Empty runs the dry run build.
+        required: false
+        default: ""
+        type: string
+      allow-downgrade:
+        description: Let a tag older than the tap's cask replace it
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
+# A release run (ref: the tag) and a manual cask run (ref: main) are in different groups and can
+# overlap. The PUT carries the sha of the file it replaces and the downgrade guard refuses an older
+# version, so an overlap ends in a red run, never in a wrong cask.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   bundle:
+    # A manual run with a cask-tag only pushes the cask, see the homebrew job.
+    if: github.event_name == 'release' || inputs.cask-tag == ''
     runs-on: macos-latest
     timeout-minutes: 30
     permissions:
       contents: write
+    # The sha256 of the zip this job built and uploaded, for the homebrew job.
+    outputs:
+      zip-sha256: ${{ steps.asset.outputs.sha256 }}
     env:
       # Every event value reaches a script through env, never inline in a `run:`.
       # Empty on a dry run, where the version comes from git describe.
@@ -90,6 +113,7 @@ jobs:
           (cd dist && shasum -a 256 "${zip}" > "${zip}.sha256")
           cat "dist/${zip}.sha256"
           echo "zip=${zip}" >> "${GITHUB_OUTPUT}"
+          echo "sha256=$(cut -d' ' -f1 "dist/${zip}.sha256")" >> "${GITHUB_OUTPUT}"
 
       - name: Upload to the release
         if: env.RELEASE_TAG != ''
@@ -107,3 +131,69 @@ jobs:
             dist/${{ steps.asset.outputs.zip }}
             dist/${{ steps.asset.outputs.zip }}.sha256
           if-no-files-found: error
+
+  # A manual run with cask-tag pushes from the default branch only. On another branch the bundle
+  # and homebrew jobs both skip, so this job fails the run instead of leaving it green.
+  cask-tag-branch:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.cask-tag != '' &&
+      github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Refuse a cask push from another branch
+        env:
+          REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          echo "cask-tag pushes the cask from ${DEFAULT_BRANCH} only, this run is on ${REF}: start it again on ${DEFAULT_BRANCH}" >&2
+          exit 1
+
+  # Pushes the Homebrew cask to the tap, after the bundle job attached the zip its URL points at.
+  # Its own job, so a failed push shows as a red run and "Re-run failed jobs" repeats this job
+  # alone, with the bundle job's outputs kept. The cask is rendered from the zip downloaded from the
+  # release and verified against the hash the bundle job recorded and against the release's .sha256
+  # file (scripts/publish-homebrew-cask.sh). A manual run (workflow_dispatch with cask-tag, default
+  # branch only) skips the bundle job and verifies against the .sha256 file alone. A pre-release
+  # is skipped, an identical cask is left alone. Modelled on gitcd's homebrew job.
+  homebrew:
+    needs: bundle
+    # always() lets a manual run start while the bundle job is skipped.
+    if: >-
+      always() && (
+      (github.event_name == 'release' && needs.bundle.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.cask-tag != '' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Scoped to the tap alone and to contents: write, the one permission a file commit needs.
+      # Minted here, in the one job that needs it, and revoked when the job ends.
+      - name: Mint a token for the tap
+        id: tap-token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc  # v3.4.0
+        with:
+          app-id: ${{ vars.GH_APP_RELEASE_APP_ID }}
+          private-key: ${{ secrets.GH_APP_RELEASE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homebrew-tap
+          permission-contents: write
+
+      - name: Push the cask to the tap
+        env:
+          # Reads this repository's published release, nothing else.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAP_TOKEN: ${{ steps.tap-token.outputs.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.cask-tag || github.event.release.tag_name }}
+          ZIP_SHA256: ${{ needs.bundle.outputs.zip-sha256 }}
+          VERIFY_MODE: ${{ github.event_name == 'workflow_dispatch' && 'checksums' || 'hash' }}
+          ALLOW_DOWNGRADE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow-downgrade || 'false' }}
+        run: ./scripts/publish-homebrew-cask.sh

@@ -79,6 +79,23 @@ tasks:
         echo "archs: ${archs}"
         [ "${archs}" = "arm64" ] || fail "expected only arm64"
 
+  test:cask:
+    desc: Tests of the cask scripts (render, publish, audit) with fake gh and brew, offline
+    cmds:
+      - scripts/render-cask_test.sh
+      - scripts/publish-homebrew-cask_test.sh
+      - scripts/audit-cask_test.sh
+
+  # CI only: not part of "check", because it needs Homebrew and taps a scratch tap named
+  # audio-router-ci/audit while it runs. The hash is a placeholder: without --online the audit
+  # downloads nothing, so it checks the cask's text, not the zip.
+  lint:cask-audit:
+    desc: brew audit --cask --strict and brew style on a rendered cask
+    cmds:
+      - mkdir -p dist
+      - scripts/render-cask.sh 0.1.0 0000000000000000000000000000000000000000000000000000000000000000 dist/audio-router.rb
+      - scripts/audit-cask.sh dist/audio-router.rb
+
   lint:fmt:
     desc: Swift format check, part of the Swift toolchain
     cmds:
@@ -154,5 +171,6 @@ tasks:
       - task: lint:markdown
       - task: lint:yaml
       - task: lint:actions
+      - task: test:cask
       - task: build
       - task: test
