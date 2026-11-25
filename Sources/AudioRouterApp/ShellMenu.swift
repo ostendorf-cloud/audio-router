@@ -16,6 +16,7 @@ struct ShellMenu: View {
             isOn: Binding(
                 get: { model.isOn },
                 set: { on in Task { await model.setGlobalOn(on) } }))
+        ErrorsEngineIssueRows(model: model)
         if !model.rows.isEmpty {
             Divider()
             ForEach(model.rows) { row in
@@ -24,6 +25,7 @@ struct ShellMenu: View {
                     isOn: Binding(
                         get: { row.isEnabled },
                         set: { model.setRouteEnabled(row.id, $0) }))
+                ErrorsRouteIssueRows(model: model, routeID: row.id)
             }
             MeterMenuLines(model: model)
         }

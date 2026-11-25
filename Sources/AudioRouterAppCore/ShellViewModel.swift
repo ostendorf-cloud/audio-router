@@ -94,13 +94,17 @@ public final class ShellViewModel {
     /// Switches one route on or off. The engine restarts or tears down that route.
     public func setRouteEnabled(_ id: UUID, _ enabled: Bool) {
         guard !shuttingDown else { return }
-        let routes = engine.snapshot.routes.map { status -> Route in
-            var route = status.route
+        // The latest list sent, not the snapshot: the snapshot lags a `setRoutes` still in the queue.
+        let routes = engine.routesToBuildOn.map { route -> Route in
+            var route = route
             if route.id == id { route.enabled = enabled }
             return route
         }
         engine.setRoutes(routes)
     }
+
+    /// Clears a held failure of one route and tries again at once.
+    public func retryNow(_ id: UUID) { engine.retryNow(id) }
 
     /// The quit path. Tears every route down off the main thread and calls `reply` on the main actor
     /// only after `stopAll` returned.

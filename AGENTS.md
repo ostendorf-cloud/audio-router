@@ -38,6 +38,15 @@ The global baseline already applies here and is not repeated below.
   `Tests/RouterCoreAudioTests` runs the real time code on in memory buffer lists.
 - `docs/prototype-findings.md` is a template the owner fills from a real Mac. Never fill it with guesses.
 
+## Login item
+
+The Settings toggle registers `SMAppService.mainApp` through the `LoginItemService` protocol.
+`LoginItemViewModel` in `AudioRouterAppCore` maps the four statuses and an error to a toggle and a hint.
+The live service sits in `Sources/AudioRouterApp/LoginItemLive.swift`, because the core has no ServiceManagement import.
+Settings reads the real status on each appear and each time the app becomes active, because the Settings window
+is kept on close and `onAppear` may not fire again. It only registers the app. Restoring routes is the engine's job.
+Not verified: the behaviour with the ad hoc build, and from outside `/Applications`.
+
 ## Commands
 
 ```sh
@@ -126,7 +135,7 @@ Nothing active prints the full permission warning only.
   - `observe` handlers run on the engine queue and must not call `start`, `setOn` or `stopAll`.
 - Known limits of the engine:
   - Several routes at once on one device (two aggregates on one device) are not measured.
-    Do not claim they work. The hardware checklist (issue 15) covers it.
+    Do not claim they work. The hardware checklist (`docs/hardware-checklist.md`, issue 28) covers it.
   - Whether a denied capture permission fails with an OSStatus or delivers silence is not measured
     (`docs/prototype-findings.md` section 1). As an OSStatus it ends in `retriesExhausted`, as silence in the
     `noSignal` warning. `EngineConfiguration.classify` can map a measured status to `permanent`.
@@ -146,10 +155,28 @@ Nothing active prints the full permission warning only.
     because every replug clears the attempt count. The quiet period of `DeviceModel` plus the first backoff
     delay bound the pace. A possible follow up: clear the count only after the device stayed present for a while.
   - The single serial queue blocks every other route while one start blocks, for example on a permission prompt.
+- Route editor (`Editor*.swift` in `AudioRouterApp` and `AudioRouterAppCore`):
+  - `EditorViewModel` holds the logic. It sits behind `DeviceProviding`, `AppProviding` and `EditorRouteStoring`.
+    `EditorSnapshotProvider` reads devices and apps from the engine snapshot, so the UI starts no second monitor.
+  - Validation is `RouteValidator`. Its errors for the edited route map to field messages.
+    Errors of other routes never block a save. The edited route is checked as enabled.
+  - Save writes the `RouteStore` first and calls `engine.setRoutes` second. A failed write leaves the engine alone.
+    Delete does the same with the route removed, and `setRoutes` tears the removed route down.
+  - The destination picker offers the stereo pairs 1,2, 3,4 and so on of the whole device.
+    The source picker offers the pairs of output stream 0, because a device stream tap has the format of that
+    stream (`CoreAudioRoutingBackend.createTap`). The device model lists buffers, so the first buffer stands for
+    stream 0 when it has two channels or more, else the whole device count is used. That is inferred, not
+    measured. The validator does not check the source pair, and an `unsupportedFormat` start failure stays with
+    issue 23.
+  - The menu switch of a route is not stored. A save writes the on and off state of every route and an edit never
+    changes the state of the edited route.
+  - `RouteEngine.setRoutes` returns before the snapshot changes. `DesiredRoutesEngine` wraps the engine, keeps the
+    last list sent and is the one engine of the shell and the editor. A menu toggle, a save and a delete build on
+    that list and not on the snapshot. Window left: a change that bypasses the wrapper, for example a second
+    caller of the raw engine, would still build on a stale list.
 - Known limits of the app shell:
   - Quit has no time limit, so a hanging `stopAll` keeps the app from quitting. That keeps the teardown guarantee.
-  - A failed engine start (`startFailure`) clears only on a new `start`, nothing retries it before a relaunch.
-    Issue 23 owns the error handling.
+  - A failed engine start (`startFailure`) clears only on a new `start`. The menu offers "Retry now" for it.
 - Meters (issue 22): `RouteEngine.meterReadings()` reads the meter of every running route and returns one
   `MeterReading` per route id. The engine never reads a meter on its own, the snapshot carries none.
   `MeterPoller` (`AudioRouterAppCore`) calls it at about 15 Hz, off the main thread, and only while the menu or
@@ -160,6 +187,22 @@ Nothing active prints the full permission warning only.
   Only one reader may poll, a second one takes intervals from the first.
   Left and right are merged in one level, and `output` equals `tap` by construction, so the UI shows the tap.
   The bar runs from -60 to 0 dBFS (`MeterLevel`), the number is the peak.
+- Errors and actions (issue 23):
+  - `RouteIssues.of` (`Errors*.swift` in `AudioRouterAppCore`) maps a route state to `RouteIssue` values:
+    kind, severity, message and one `RouteAction` (`openAudioCaptureSettings`, `retry`, `chooseDevice`, `none`).
+    The views in `Sources/AudioRouterApp/Errors*.swift` only show them. `IssueActionRunner` runs the action
+    through `SettingsOpening`, so tests use a fake.
+  - `RouteStatus.startError` carries the typed `RouterError` of a failed start, and `RouteIssues.kind(of:)` reads it.
+    For an error of another type `kind(ofFailureMessage:)` reads the text. A test pins every `RouterError` text to
+    `kind(of:)`. Reword an error text only together with that mapping.
+  - A failed teardown step shows for a switched off route too, and warns on the icon while the global switch is on.
+  - A new `RouterError` case, `RouteState`, `RouteFailure` or `RouteWarning` case needs a mapping: the exhaustive
+    switches in `ErrorsTests` stop compiling. `Tests/AudioRouterAppTests/Errors/Golden/messages.txt` holds every
+    message. Change it with the text, never to make a test pass.
+  - A message says "likely" where the cause is inferred. The permission is always inferred: no status query is
+    verified and a denied tap may deliver silence. The settings button opens the generic privacy pane, the anchor of
+    the audio capture list is not verified.
+  - The menu bar icon stays `ShellStatus.of`. A test keeps the worst issue severity in step with it.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and
   `CATapDescription.h` in `$(xcrun --show-sdk-path)/System/Library/Frameworks/CoreAudio.framework/Headers`.
 - Tests use no network, no audio hardware and no permission. New device or process code goes behind a protocol.

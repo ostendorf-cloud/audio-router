@@ -483,6 +483,7 @@ public final class RouteEngine: @unchecked Sendable {
         }
         record.session = session
         record.attempts = 0
+        record.startError = nil
         record.startedAt = clock.now()
         record.rateWarnings = Self.rateWarnings(session.routeInfo())
         record.state = .running(warnings: record.warnings)
@@ -491,6 +492,7 @@ public final class RouteEngine: @unchecked Sendable {
 
     private func fail(_ record: Record, _ error: Error) {
         let message = "\(error)"
+        record.startError = error as? RouterError
         record.attempts += 1
         switch config.classify(error) {
         case .permanent:
@@ -602,7 +604,9 @@ public final class RouteEngine: @unchecked Sendable {
     private func publish() {
         let statuses = order.compactMap { id in
             records[id].map {
-                RouteStatus(route: $0.route, state: $0.state, teardownFailures: $0.teardownFailures)
+                RouteStatus(
+                    route: $0.route, state: $0.state, teardownFailures: $0.teardownFailures,
+                    startError: $0.failedStartError)
             }
         }
         let next = EngineSnapshot(
@@ -650,6 +654,8 @@ public final class RouteEngine: @unchecked Sendable {
         /// A failure that stops the retries until the user acts.
         var held: RouteFailure?
         var needsRestart = false
+        /// The typed error of the last failed start, for `RouteStatus.startError`.
+        var startError: RouterError?
         /// The default output moved away from the destination and has not come back. The route
         /// waits in `waitingForDevice` like for a lost device. Cleared by the default returning to
         /// the destination, a new destination, or a new run.
@@ -666,6 +672,15 @@ public final class RouteEngine: @unchecked Sendable {
 
         init(route: Route) { self.route = route }
 
+        /// The start error, only while the state is a failed start. A validation failure, a wait or a
+        /// switched off route shows none, whatever an older start left.
+        var failedStartError: RouterError? {
+            switch state {
+            case .failed(.startFailed), .failed(.refused), .failed(.retriesExhausted): startError
+            default: nil
+            }
+        }
+
         var warnings: [RouteWarning] {
             rateWarnings + (silence.map { [.noSignal($0)] } ?? []) + (tapWarning.map { [.tapCheck($0)] } ?? [])
         }
@@ -674,6 +689,7 @@ public final class RouteEngine: @unchecked Sendable {
         func clearFailures() {
             attempts = 0
             held = nil
+            startError = nil
         }
 
         /// The device or the app came back. A `refused` hold stays, it needs the user.
