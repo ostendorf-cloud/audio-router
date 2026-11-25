@@ -1,7 +1,10 @@
 # audio-router
 
 Routes the audio of single macOS apps to channel pairs of any output device.
-The concept is `docs/concepts/audio-router.md`. This repository holds phase 1, a command line prototype.
+The concept is `docs/concepts/audio-router.md`. This repository holds the menu bar app (phase 2, release 0.1.0)
+and `audio-router-proto`, the command line diagnostic tool from phase 1.
+The README describes install and use. Keep it in step with the app sections below.
+Stated limits of the release: macOS 14.2 floor, tested on macOS 27 only, arm64 only, ad hoc signed, not notarised.
 
 The global baseline already applies here and is not repeated below.
 
@@ -220,10 +223,13 @@ Nothing active prints the full permission warning only.
   `-sectcreate __TEXT __info_plist <path>`. Check it with
   `otool -s __TEXT __info_plist -v .build/debug/audio-router-proto`.
 
-## Verifying the prototype on a real Mac
+## Verifying on a real Mac
 
 Agents cannot do this. The sandbox has no audio permission and Core Audio lists no devices there.
-The owner runs, with an app that plays audio and an output device with several channels:
+The owner runs `docs/hardware-checklist.md` for the app before a release.
+It covers Gatekeeper, the permission prompt, login item and the device rules.
+A README claim marked "not verified" stays marked until the owner's checklist confirms it.
+For the prototype, the owner runs, with an app that plays audio and an output device with several channels:
 
 ```sh
 swift build -c release
