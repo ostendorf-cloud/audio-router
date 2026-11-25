@@ -7,7 +7,8 @@ Route the audio of single macOS apps to channel pairs of any output device.
 - A menu bar app. It has no Dock icon.
 - A route sends one app to one stereo channel pair of an output device, for example channels 3 and 4 of a mixer.
 - While a route runs, the app is silent on its normal output.
-- Routes are stored and start again after an app restart, a device return or a login.
+- Routes are stored and start again after an app restart or a device return.
+  Start again after a login is not verified.
 - Added latency and drift are not measured on the app yet, see the hardware checklist.
 - Concept: [docs/concepts/audio-router.md](docs/concepts/audio-router.md).
 
@@ -37,15 +38,17 @@ Route the audio of single macOS apps to channel pairs of any output device.
   ```
 
 - Unzip the file and drag `audio-router.app` to `/Applications`.
+  Expected: the app appears in `/Applications`. Not verified.
   Running it from another folder is not verified.
 - The app is signed ad hoc and not notarised.
   Notarisation needs a Developer ID Application certificate from the paid Apple Developer Program.
   That certificate does not exist yet.
 - Gatekeeper is assumed to block the first open. Not verified.
-  Open the app in one of these ways.
+  Open the app in one of these ways. Each way is not verified.
   - Right click the app, choose Open, then confirm. Assumed, not verified.
-  - System Settings, Privacy & Security, then Open Anyway.
-  - In a terminal: `xattr -dr com.apple.quarantine /Applications/audio-router.app`.
+  - System Settings, Privacy & Security, then Open Anyway. Not verified.
+  - In a terminal: `xattr -dr com.apple.quarantine /Applications/audio-router.app`. Not verified.
+  - Expected after any way: the speaker icon appears in the menu bar. Not verified.
 - Each new release may ask for the audio capture permission again, until a Developer ID exists.
   Not verified.
 
@@ -77,6 +80,7 @@ Route the audio of single macOS apps to channel pairs of any output device.
 - Uninstall:
   - Quit the app from the menu.
   - Switch off Start at login in Settings, or remove audio-router in System Settings under Login Items.
+    The removal in System Settings is not verified.
   - Delete `/Applications/audio-router.app`.
   - Delete the stored routes: `~/Library/Application Support/audio-router/routes.json`.
   - The audio capture permission entry stays in System Settings. Remove it there. Not verified.

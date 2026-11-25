@@ -75,9 +75,9 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 
   Unzip with Finder. Open `audio-router.app` by double click.
 - Expected: the checksum line reports `OK`. Gatekeeper blocks the first open, because the app is
-  ad hoc signed and not notarised (README, Releases). The block is expected, not a defect.
-- Then open it with one of the two documented ways.
-  System Settings, Privacy & Security, Open Anyway, or
+  ad hoc signed and not notarised (README, Install). The block is expected, not a defect.
+- Then open it with one of the three documented ways.
+  Right click, Open, or System Settings, Privacy & Security, Open Anyway, or
   `xattr -dr com.apple.quarantine <path to the app>`.
 - Expected: after that the app starts, a speaker icon appears in the menu bar and no Dock icon
   (`LSUIElement`). The menu has a Quit item.
