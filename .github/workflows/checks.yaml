@@ -57,6 +57,34 @@ jobs:
           install_args: task
       - run: task lint:swiftui-macros
 
+  # The tests of the cask scripts, with a fake gh and a fake brew. No network, no secrets.
+  cask:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
+        with:
+          install_args: task
+      - run: task test:cask
+
+  # Runs brew audit --cask --strict and brew style on a rendered cask in a scratch tap, so a cask
+  # the tap's audit would reject fails here instead of after a release. Homebrew comes with the
+  # macOS runner image. No secrets, and the scratch tap is removed at the end of the script.
+  cask-audit:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
+        with:
+          install_args: task
+      - run: task lint:cask-audit
+
   markdownlint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
