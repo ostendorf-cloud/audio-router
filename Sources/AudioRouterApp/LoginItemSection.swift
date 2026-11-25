@@ -6,8 +6,9 @@ import AudioRouterAppCore
 import SwiftUI
 
 /// The "Start at login" section of the settings window. It reads the real status on each appear.
+/// The model comes from `LoginItemContext`: no `@State`, its macro plugin ships with Xcode only.
 struct LoginItemSection: View {
-    @State private var model = LoginItemViewModel(service: LiveLoginItemService())
+    private var model: LoginItemViewModel { LoginItemContext.model }
 
     var body: some View {
         Section("Startup") {

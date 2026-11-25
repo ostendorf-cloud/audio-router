@@ -5,9 +5,9 @@ import AudioRouterAppCore
 import SwiftUI
 
 /// The route list of the settings window with Add, Edit and Delete. The form opens as a sheet.
+/// The pending delete lives in the model: no `@State`, its macro plugin ships with Xcode only.
 struct EditorRouteList: View {
     @Bindable var model: EditorViewModel
-    @State private var pendingDelete: EditorRouteRow?
 
     var body: some View {
         if model.rows.isEmpty {
@@ -22,7 +22,7 @@ struct EditorRouteList: View {
                 Spacer()
                 Button("Edit") { model.beginEdit(row.id) }
                     .accessibilityLabel("Edit \(row.title)")
-                Button("Delete", role: .destructive) { pendingDelete = row }
+                Button("Delete", role: .destructive) { model.requestDelete(row.id) }
                     .accessibilityLabel("Delete \(row.title)")
             }
         }
@@ -35,10 +35,11 @@ struct EditorRouteList: View {
             }
             .confirmationDialog(
                 "Delete this route?",
-                isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
-                presenting: pendingDelete
+                isPresented: Binding(
+                    get: { model.pendingDelete != nil }, set: { if !$0 { model.cancelDelete() } }),
+                presenting: model.pendingDelete
             ) { row in
-                Button("Delete \(row.title)", role: .destructive) { model.delete(row.id) }
+                Button("Delete \(row.title)", role: .destructive) { model.confirmDelete(row.id) }
             } message: { row in
                 Text("\(row.title) stops and the app plays on its own output again.")
             }
