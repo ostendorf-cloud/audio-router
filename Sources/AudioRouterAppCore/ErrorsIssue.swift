@@ -34,8 +34,8 @@ public enum IssueSeverity: Int, Comparable, Equatable, Sendable {
 
     public static func < (lhs: IssueSeverity, rhs: IssueSeverity) -> Bool { lhs.rawValue < rhs.rawValue }
 
-    /// The icon state of an issue of this severity. `ShellStatus.of` is the source of truth for a
-    /// snapshot, a test keeps the two in step.
+    /// The icon state of an issue of this severity. `ShellStatus.of` maps the worst severity of a
+    /// snapshot through it.
     public var shellStatus: ShellStatus {
         switch self {
         case .info: .running
@@ -51,7 +51,7 @@ public enum RouteIssueKind: String, Equatable, Sendable, CaseIterable {
     case permissionSilence
     /// A start failed in the way a missing permission can fail it.
     case permissionStartFailed
-    /// Silence and the app does not output audio, or not to this device.
+    /// Silence and no process of the app outputs audio, likely paused. Normal, so `info` (issue 61).
     case appNotPlaying
     /// The destination is not in the device list.
     case deviceGone

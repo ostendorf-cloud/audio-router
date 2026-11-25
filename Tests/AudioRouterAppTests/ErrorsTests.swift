@@ -446,6 +446,42 @@ private func warningSamples(_ warning: RouteWarning) -> RouteWarning {
 
 // MARK: - Worst state
 
+/// The icon of every fixture, written out so the derivation in `ShellStatus.of` cannot hide a change.
+/// Issue 61 changed one line only: a silent app that does not play keeps the icon at `running`.
+private let expectedIcons: [String: ShellStatus] = [
+    "waitingForApp": .running,
+    "waitingForDevice, device gone": .warning,
+    "waitingForDevice, not alive": .warning,
+    "waitingForDevice, not default": .warning,
+    "waitingForDevice, back": .warning,
+    "noSignal, app plays": .warning,
+    "noSignal, app silent": .running,
+    "noSignal, tap check text": .warning,
+    "tapCheck": .warning,
+    "sampleRateMismatch": .warning,
+    "startFailed, other": .error,
+    "startFailed, permission text": .error,
+    "refused, ambiguous tap": .error,
+    "refused, other": .error,
+    "refused, app gone": .error,
+    "refused, device unknown": .error,
+    "refused, channels": .error,
+    "retriesExhausted, permission text": .error,
+    "retriesExhausted, other": .error,
+    "validation": .error,
+    "teardown failures": .warning,
+    "teardown failure, one": .warning,
+    "teardown failure, route off": .warning,
+    "noSignal, tap silent next to device input": .warning,
+    "noSignal, signal outside source": .warning,
+    "tapCheck, tap silent next to device input": .warning,
+    "tapCheck, signal outside source": .warning,
+    "typed error beats the text": .error,
+    "usage text that looks like a tap refusal": .error,
+    "refusedWithDiff, unsupported format": .error,
+    "two warnings": .warning,
+]
+
 @Suite struct ErrorsWorstStateTests {
     @Test func theWorstIssueMatchesTheMenuBarIcon() {
         for fixture in fixtures() {
@@ -456,10 +492,18 @@ private func warningSamples(_ warning: RouteWarning) -> RouteWarning {
         }
     }
 
+    @Test func everyFixtureHasItsIconWrittenOut() {
+        let names = fixtures().map(\.name)
+        #expect(Set(names) == Set(expectedIcons.keys))
+        for fixture in fixtures() {
+            #expect(ShellStatus.of(fixture.snapshot) == expectedIcons[fixture.name], "\(fixture.name)")
+        }
+    }
+
     @Test func aFailedEngineStartIsTheWorst() {
         let quiet = snapshot(.running(warnings: []))
         #expect(RouteIssues.worstSeverity(quiet) == nil)
-        #expect(RouteIssues.worstSeverity(quiet, startFailure: "x") == .error)
+        #expect(RouteIssues.worstSeverity(quiet, startFailed: true) == .error)
         #expect(ShellStatus.of(quiet, startFailed: true) == .error)
     }
 
@@ -471,6 +515,29 @@ private func warningSamples(_ warning: RouteWarning) -> RouteWarning {
             ], devices: [], apps: [])
         #expect(ShellStatus.of(off, startFailed: true) == .off)
         #expect(RouteIssues.worstSeverity(off) == nil)
+    }
+
+    @Test func aPausedAppKeepsTheIconRunningAndASilentPlayingAppWarns() {
+        let silence = RouteState.running(warnings: [.noSignal(["warning: no audio arrived"])])
+        let paused = snapshot(silence, apps: [app(playing: false)])
+        #expect(issues(of: paused).map(\.severity) == [.info])
+        #expect(ShellStatus.of(paused) == .running)
+        #expect(ShellRowState.of(paused.routes[0], in: paused) == .running)
+        // An app without any process in the snapshot plays nothing either.
+        let gone = snapshot(silence, apps: [])
+        #expect(ShellStatus.of(gone) == .running)
+        let playing = snapshot(silence, apps: [app(playing: true)])
+        #expect(issues(of: playing).map(\.kind) == [.permissionSilence])
+        #expect(ShellStatus.of(playing) == .warning)
+        #expect(ShellRowState.of(playing.routes[0], in: playing) == .warning)
+    }
+
+    @Test func aPausedAppNextToARealWarningStillWarns() {
+        let shot = snapshot(
+            .running(warnings: [.noSignal(["warning: no audio arrived"]), .sampleRateMismatch(tap: 1, device: 2)]),
+            apps: [app(playing: false)])
+        #expect(ShellStatus.of(shot) == .warning)
+        #expect(ShellRowState.of(shot.routes[0], in: shot) == .warning)
     }
 
     @Test func aFailedTeardownIsAWarningOnTheIcon() {

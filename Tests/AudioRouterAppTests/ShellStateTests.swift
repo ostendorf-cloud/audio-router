@@ -97,11 +97,20 @@ private let video = ShellSamples.video
     }
 
     @Test func rowStatesMapFromRouteStates() {
-        #expect(ShellRowState.of(.disabled) == .disabled)
-        #expect(ShellRowState.of(.starting) == .starting)
-        #expect(ShellRowState.of(.running(warnings: [])) == .running)
-        #expect(ShellRowState.of(.running(warnings: [.noSignal([])])) == .warning)
-        #expect(ShellRowState.of(.failed(.refused(message: "x"))) == .failed)
+        func row(_ state: RouteState) -> ShellRowState {
+            let snapshot = ShellSamples.snapshot([(music, state)])
+            return ShellRowState.of(snapshot.routes[0], in: snapshot)
+        }
+        #expect(row(.disabled) == .disabled)
+        #expect(row(.starting) == .starting)
+        #expect(row(.waitingForApp) == .waitingForApp)
+        #expect(row(.waitingForDevice) == .waitingForDevice)
+        #expect(row(.running(warnings: [])) == .running)
+        #expect(row(.running(warnings: [.tapCheck("t")])) == .warning)
+        #expect(row(.running(warnings: [.sampleRateMismatch(tap: 1, device: 2)])) == .warning)
+        // The sample snapshot lists no app, so the app plays nothing: likely paused, not a warning.
+        #expect(row(.running(warnings: [.noSignal([])])) == .running)
+        #expect(row(.failed(.refused(message: "x"))) == .failed)
     }
 }
 

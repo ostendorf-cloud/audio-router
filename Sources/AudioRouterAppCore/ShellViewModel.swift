@@ -58,9 +58,11 @@ public final class ShellViewModel {
     public var isOn: Bool { snapshot.isOn }
 
     public var rows: [ShellRouteRow] {
-        snapshot.routes.map {
+        let snapshot = snapshot
+        return snapshot.routes.map {
             ShellRouteRow(
-                id: $0.route.id, name: $0.route.name, isEnabled: $0.route.enabled, state: ShellRowState.of($0.state))
+                id: $0.route.id, name: $0.route.name, isEnabled: $0.route.enabled,
+                state: ShellRowState.of($0, in: snapshot))
         }
     }
 
