@@ -2,17 +2,22 @@
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
 #
-# Fails when a Swift file uses a SwiftUI macro whose compiler plugin ships with Xcode only.
-# The Command Line Tools have no SwiftUIMacros and no PreviewsMacros plugin, so such a file does not
-# build there (issue 58). The Observation macros (@Observable, @Bindable) come with the Command Line Tools.
+# Fails when a Swift file uses a macro whose compiler plugin ships with Xcode only.
+# The Command Line Tools have no SwiftUIMacros, PreviewsMacros or FoundationMacros plugin, so such a file
+# does not build there (issue 58). @Observable and @ObservationIgnored come from the ObservationMacros plugin
+# of the Command Line Tools and are fine. @Bindable is a property wrapper, not a macro.
 #   scripts/lint-swiftui-macros.sh [dir]   check every *.swift below dir, default Sources
 # A simple line check: it drops `//` comments. It does not know block comments or string literals, so a
 # macro spelled inside them is reported too. That fails closed.
+# A name matches only with its sigil (@ or #) and as a whole word, optionally module qualified. So the
+# Foundation types Predicate and Expression, Bundle, a property wrapper like @StateObject and #if pass.
 set -euo pipefail
 
 # The macros of the macOS 27 SDK that need a plugin missing from the Command Line Tools, as name|plugin.
-# Found with: grep -rn 'externalMacro' in the SwiftUI and SwiftUICore swiftinterface files of the SDK.
+# Found with: grep -rn 'externalMacro' in the swiftinterface files of every framework of the SDK.
 # Names starting with an underscore are internal helpers the public macros expand to, and are not listed.
+# Macros of frameworks the app does not import (SwiftData, AppIntents, TipKit, FoundationModels, ...)
+# are not listed either. Add them when a source file imports such a framework.
 macros=(
   "@State|SwiftUIMacros"
   "@Entry|SwiftUIMacros"
@@ -20,6 +25,9 @@ macros=(
   "@AnimatableIgnored|SwiftUIMacros"
   "@Previewable|PreviewsMacros"
   "#Preview|PreviewsMacros"
+  "#Predicate|FoundationMacros"
+  "#Expression|FoundationMacros"
+  "#bundle|FoundationMacros"
 )
 
 root="${1:-Sources}"
@@ -41,7 +49,7 @@ find "${root}" -name '*.swift' -exec awk -v list="${macros[*]}" '
       plugin[i] = part[2]
       # The sigil, an optional module prefix, the macro name, then no further identifier character.
       # So @StateObject passes and @SwiftUI.State fails.
-      pattern[i] = "(^|[^A-Za-z0-9_])" substr(part[1], 1, 1) "((SwiftUI|SwiftUICore)[.])?" \
+      pattern[i] = "(^|[^A-Za-z0-9_])" substr(part[1], 1, 1) "((SwiftUI|SwiftUICore|Foundation)[.])?" \
         substr(part[1], 2) "([^A-Za-z0-9_]|$)"
     }
     bad = 0

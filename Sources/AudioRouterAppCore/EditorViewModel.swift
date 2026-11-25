@@ -211,7 +211,8 @@ public final class EditorViewModel {
         }
     }
 
-    /// Asks to confirm the delete of a listed route. An id that is not listed asks nothing.
+    /// Asks to confirm the delete of a listed route and replaces an earlier question. An id that is not
+    /// listed asks nothing and clears an earlier question.
     public func requestDelete(_ id: UUID) {
         pendingDelete = rows.first { $0.id == id }
     }

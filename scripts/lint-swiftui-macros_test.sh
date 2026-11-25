@@ -49,6 +49,19 @@ struct Row: View {
 }'
 expect "clean tree passes" clean 0
 
+# The Foundation types share names with the macros. Only the # spelling is a macro.
+write words Words.swift 'import Foundation
+
+#if DEBUG
+let predicate: Predicate<Int>? = nil
+let expression: Expression<Int, Bool>? = nil
+#endif
+let bundle = Bundle.main
+let state: SwiftUI.State<Int>? = nil
+func entry(_ animatable: Bool, previewable: Bool) {}
+let mail = "user@Statehouse.example"'
+expect "types and words named like the macros pass" words 0
+
 write state App/List.swift 'import SwiftUI
 
 struct List: View {
@@ -66,6 +79,27 @@ expect "@Entry fails" entry 1 "E.swift:4: @Entry"
 
 write preview P.swift '#Preview { Text("x") }'
 expect "#Preview fails" preview 1 "P.swift:4: #Preview is a macro of the PreviewsMacros plugin"
+
+write animatable A.swift '@Animatable struct Shape {}'
+expect "@Animatable fails" animatable 1 "A.swift:4: @Animatable is a macro of the SwiftUIMacros plugin"
+
+write ignored I.swift 'struct Shape { @AnimatableIgnored var id = 0 }'
+expect "@AnimatableIgnored fails" ignored 1 "I.swift:4: @AnimatableIgnored is a macro"
+
+write previewable V.swift '    @Previewable var on = false'
+expect "@Previewable fails" previewable 1 "V.swift:4: @Previewable is a macro of the PreviewsMacros plugin"
+
+write predicate R.swift 'let adults = #Predicate<Int> { age in age >= 18 }'
+expect "#Predicate fails" predicate 1 "R.swift:4: #Predicate is a macro of the FoundationMacros plugin"
+
+write expression X.swift 'let double = #Expression<Int, Int> { value in value * 2 }'
+expect "#Expression fails" expression 1 "X.swift:4: #Expression is a macro of the FoundationMacros plugin"
+
+write bundlemacro B.swift 'let resources = #bundle'
+expect "#bundle fails" bundlemacro 1 "B.swift:4: #bundle is a macro of the FoundationMacros plugin"
+
+write qualifiedfoundation F.swift 'let any = #Foundation.Predicate<Int> { _ in true }'
+expect "#Foundation.Predicate fails" qualifiedfoundation 1 "F.swift:4: #Predicate"
 
 write mixed Clean.swift 'struct Clean {}'
 write mixed Bad.swift 'struct Bad { @Previewable @State var on = false }'

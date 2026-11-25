@@ -208,18 +208,24 @@ Nothing active prints the full permission warning only.
     the audio capture list is not verified.
   - The menu bar icon stays `ShellStatus.of`. A test keeps the worst issue severity in step with it.
 - The whole package builds with the Command Line Tools alone, without Xcode (issue 58).
-  No source file may use a SwiftUI macro whose compiler plugin ships with Xcode only.
+  No source file may use a macro whose compiler plugin ships with Xcode only.
   With the macOS 27 SDK these are `@State`, `@Entry`, `@Animatable`, `@AnimatableIgnored` (plugin
-  `SwiftUIMacros`), `@Previewable` and `#Preview` (plugin `PreviewsMacros`).
-  The Observation macros `@Observable` and `@Bindable` ship with the Command Line Tools and are fine.
+  `SwiftUIMacros`), `@Previewable` and `#Preview` (plugin `PreviewsMacros`), and `#Predicate`, `#Expression` and
+  `#bundle` (plugin `FoundationMacros`). The Foundation types `Predicate` and `Expression` without `#` are fine.
+  `@Observable` and `@ObservationIgnored` come from the `ObservationMacros` plugin of the Command Line Tools and are
+  fine. `@Bindable` is a property wrapper, not a macro.
   View state goes into an `@Observable` model in `AudioRouterAppCore` with a test, for example
   `EditorViewModel.pendingDelete`. A model the view owns comes from a `@MainActor` context like
   `EditorContext` or `LoginItemContext`.
   - `scripts/lint-swiftui-macros.sh` (`task lint:swiftui-macros`, CI job `swiftui-macros`) fails with file, line and
     reason when `Sources` holds one of them. The list sits at the top of the script. Extend it when a new SDK adds a
-    macro from a plugin the Command Line Tools lack. Find them with `grep -rn externalMacro` in the SwiftUI and
-    SwiftUICore swiftinterface files of `/Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk`.
+    macro from a plugin the Command Line Tools lack. Find them with `grep -rn externalMacro` in the swiftinterface
+    files of every framework under `/Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk/System/Library/Frameworks`.
+    Macros of frameworks the app does not import, such as SwiftData or AppIntents, are not listed yet.
   - It is a line check that drops `//` comments only. A macro name in a block comment or string fails closed.
+    A name matches only with its sigil and as a whole word, so `@StateObject` or the type `Predicate` pass.
+  - Two contrived spellings escape it: a backticked name such as ``@`State` ``, and code after a string that
+    holds `//` on the same line.
   - `scripts/lint-swiftui-macros_test.sh` runs it on temporary trees, and the task runs that test first.
   - CI builds with Xcode, so the `build` job does not catch a macro. Only this lint does.
 - API names come from the SDK headers, not from memory. Check `AudioHardware.h`, `AudioHardwareTapping.h` and

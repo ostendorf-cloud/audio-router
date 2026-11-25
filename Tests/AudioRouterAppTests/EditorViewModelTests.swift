@@ -273,6 +273,32 @@ import Testing
         #expect(rig.engine.routeCalls.isEmpty)
     }
 
+    @Test func aSecondRequestReplacesTheFirstAndAnUnlistedIdClearsIt() {
+        let first = EditorSamples.route(1, name: "One", pair: 1)
+        let second = EditorSamples.route(2, name: "Two", pair: 3)
+        let rig = Rig(stored: [first, second])
+        rig.model.requestDelete(first.id)
+        rig.model.requestDelete(second.id)
+        #expect(rig.model.pendingDelete?.id == second.id)
+        rig.model.requestDelete(UUID())
+        #expect(rig.model.pendingDelete == nil)
+    }
+
+    @Test func confirmDeleteOfARouteRemovedMeanwhileWritesTheUnchangedList() {
+        let first = EditorSamples.route(1, name: "One", pair: 1)
+        let second = EditorSamples.route(2, name: "Two", pair: 3)
+        let rig = Rig(stored: [first, second])
+        rig.model.requestDelete(first.id)
+        // Another writer removed the route while the question was open.
+        try? rig.store.save([second])
+        rig.model.reload()
+        #expect(rig.model.confirmDelete(first.id))
+        #expect(rig.model.pendingDelete == nil)
+        #expect(rig.store.saves == [[second], [second]])
+        #expect(rig.engine.routeCalls == [[second]])
+        #expect(rig.model.routes == [second])
+    }
+
     @Test func confirmDeleteDeletesAndClearsTheQuestion() {
         let first = EditorSamples.route(1, name: "One", pair: 1)
         let second = EditorSamples.route(2, name: "Two", pair: 3)
