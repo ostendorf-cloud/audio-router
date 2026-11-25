@@ -15,9 +15,10 @@ Measurements so far: `docs/prototype-findings.md`. This list never edits that fi
 - Run the steps in order. Later steps assume the state the earlier ones leave.
   Step 15 needs the permission grant that step 2 created.
 - Write the observed value in `Result:`. Tick Pass or Fail. Put anything unexpected in `Notes:`.
-- A step marked `depends on issue N` needs that feature.
-  Until it exists, write `not testable yet` in `Result:` and leave both boxes empty.
-  Issues 20 to 24 are all in scope for v0.1.0, so the release does not pass with such a step open.
+- The app features of issues 20 to 24 (menu, route editor, live meters, errors and actions, login
+  item) are merged, so no step waits for an issue any more.
+  If a feature is missing in the build under test, write `not testable yet` in `Result:`,
+  leave both boxes empty and say why in Notes. The release does not pass with such a step open.
 - Where the expected result says `to be recorded, no reference yet`, no measurement exists.
   Record the observed value. Pass or Fail is then the owner's judgement.
 - Do not fill a field from memory or from the findings. Measure again in this run.
@@ -82,7 +83,6 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 - Expected: after that the app starts, a speaker icon appears in the menu bar and no Dock icon
   (`LSUIElement`). The menu has a Quit item.
   Record the exact Gatekeeper text and which way you used.
-- Depends on issue 20 for anything in the menu beyond Quit.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -90,8 +90,7 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 ### 2. Permission prompt for the app
 
 - Do: start with no stored grant for the app. Create a route in the app and enable it.
-  Depends on issues 21 (route editor) and 23 (permission and route errors).
-  Until 21 exists, the prompt cannot be triggered from the app. Step 4 covers the tool.
+  Step 4 covers the tool.
 - Expected: the system audio capture permission prompt appears once. Record the name it shows and
   whether the text is the usage string `NSAudioCaptureUsageDescription` of the app bundle.
   Reference: to be recorded, no reference yet (concept, Unverified for the app).
@@ -104,14 +103,14 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 ### 3. Permission denial in the app
 
 - Do: deny the prompt, or remove the grant in System Settings, Privacy & Security.
-  Enable a route. Depends on issue 23 for the error display.
+  Enable a route. Step 18 covers the texts and buttons of the error display in detail.
 - Expected: record what the app shows. Either the start fails with an OSStatus (the engine ends in
   `retriesExhausted`) or audio arrives as silence (the engine shows the `noSignal` warning after
   10 seconds). Which one happens is not measured, no reference yet (`AGENTS.md`, known limits).
 - Expected: the error text names the right place in System Settings. The app plays normally on its
   own output, and no tap or aggregate device is left behind.
-- Then grant the permission again. Use the retry action of the menu, or switch the route off
-  and on. The retry action depends on issue 23. The route reaches `running`.
+- Then grant the permission again. Switch the route off
+  and on. The route reaches `running`.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -164,7 +163,8 @@ These are the open items of findings section 1. Record the answers here, not in 
 - Expected: `tap format: 48000 Hz, 32 channels`. `tap peak` -20.0 dBFS and `tap rms` -23.0 dBFS,
   `out` equal to `tap`, unity within 0.2 dB (the findings criterion). No `warning:` line.
   The signal line shows exactly `1,2` on the tap side.
-- Do (app): repeat with the app meter and the same route. Depends on issues 21 and 22.
+- Do (app): repeat with the same route and read the Settings window bar and number. Step 17 has
+  the details of the app meter.
   Expected: the meter reads -20 dBFS peak, unity within 0.2 dB.
   The X32 USB return meter matches an unrouted run at the same volumes.
 - Result:
@@ -183,7 +183,7 @@ These are the open items of findings section 1. Record the answers here, not in 
     --channels 3,4 --meter
   ```
 
-  With the app: two enabled routes. Depends on issue 21.
+  With the app: two enabled routes.
 - Expected: both routes start and stay up. Each X32 pair carries only its own app. Both apps are
   silent on their normal output while routed. Not measured so far, no reference yet.
   Record any refusal, error text, glitch or dropout.
@@ -212,7 +212,6 @@ These are the open items of findings section 1. Record the answers here, not in 
   period of the device watcher). After the replug the route returns to `running` without a click.
   Record both times. The app is silent on its normal output again.
   No tap or aggregate device is left behind.
-  Depends on issues 20 and 22 for status display.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -300,7 +299,6 @@ These are the open items of findings section 1. Record the answers here, not in 
   again and play the sine.
 - Expected: the route goes to `waitingForApp` on quit and to `running` after the restart, without a
   click. The restarted app is silent on its normal output while routed.
-  Depends on issues 21 and 22 for the visible state.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -308,7 +306,6 @@ These are the open items of findings section 1. Record the answers here, not in 
 ### 11. Global off
 
 - Do: with two routes running, switch global off in the menu, then on again.
-  Depends on issue 20.
 - Expected: after off, every route is down and both apps play normally on their own output at once.
   No tap or aggregate device is left behind. After on, both routes return to `running`.
 - Result:
@@ -334,7 +331,7 @@ These are the open items of findings section 1. Record the answers here, not in 
 ### 13. Login restore after reboot
 
 - Do: enable the login item in the app. Reboot the Mac. Log in. Do not open the app yourself.
-  Depends on issue 24 (login item) and issue 21 (stored routes).
+  Step 16 covers the login item with a log out and in, without a reboot.
 - Expected: the app starts at login, shows its menu bar icon, loads the stored routes and the routes
   reach `running` once their device and app are present. `SMAppService` with an ad hoc signed app is
   not measured, no reference yet. Record whether macOS shows a login item approval notice.
@@ -374,6 +371,150 @@ These are the open items of findings section 1. Record the answers here, not in 
 - Expected: to be recorded, no reference yet. The README says each new release asks for the
   permission again, decision D11 accepts that, and TCC behaviour with ad hoc signatures is not
   verified. Record: prompt yes or no, and whether the old entry stays in System Settings.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+## F. App shell items
+
+These steps come from the merged app pull requests. They need the app from the release asset,
+installed in `/Applications`, with at least one stored route. Where no measurement exists the
+expected result says `to be recorded, no reference yet`.
+
+### 16. Login item, restore and status
+
+- Precondition: the app is in `/Applications` and the Startup toggle in Settings is on.
+- Do: log out and log in again, without a reboot. Do not open the app yourself.
+  Open Settings and close it. Switch the app off in System Settings, Login Items, then open
+  Settings again without restarting the app. Switch it on there again and reopen Settings once more.
+  If macOS shows the approval state (status requires approval), look at the Startup section.
+  The approval state may not be reachable on demand. If macOS does not show it, write
+  `not reproduced` in Notes for that part.
+- Expected: after the login the app starts, the menu bar icon shows and the stored routes come back
+  and reach `running` once their device and app are present. This is not measured for an ad hoc
+  signed build, to be recorded, no reference yet.
+- Expected: after each change in System Settings the toggle shows the real status when Settings is
+  opened again. The toggle also follows the status when the app becomes active. Record the toggle
+  state for each case.
+- Expected: with status requires approval the Startup section shows the hint
+  `Approval is likely needed. Allow audio-router in Login Items in System Settings.` and the
+  button `Open Login Items`. The button opens System Settings. Record which pane opens.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 17. Live meters in the menu and in Settings
+
+- Precondition: a route runs with QuickTime Player playing the -20 dBFS sine (step 5).
+- Do: open the menu. Read the text line of the route. Close the menu. Open Settings and read the bar
+  and the number. Close the window.
+- Expected: the menu shows a line `name  -xx.x dBFS` per running route, only while the menu is open.
+  The Settings window shows a bar from -60 to 0 dBFS and the peak number.
+- Expected, unity: peak about -20.0 dBFS and RMS about -23 dBFS. A sine with a peak of -20 dBFS
+  has an RMS of -23.01 dBFS. That is arithmetic. The measured value is what the owner records.
+  Unity within 0.2 dB is the criterion of the findings (step 5).
+  In the window the light bar is the peak, the solid bar in front is the RMS, and the number is
+  the peak (`MeterViews.swift`). Read the RMS from the solid bar.
+- Do (polling stops): with the menu and the window closed, watch the app in Activity Monitor:
+  the columns CPU % and Idle Wake Ups, on the CPU tab. Do the same with the menu open and
+  with the Settings window open.
+  As a shell check the pid shows with `pgrep -x audio-router`. This line is not verified:
+  default `top` has no wakeups column, `top -pid <pid> -stats pid,command,cpu,idlew` is a
+  candidate for it.
+- Expected: near 0 percent CPU when everything is closed. About 15 wakeups per second while the menu
+  or the window is open, because the poller interval is 1/15 s (`MeterPoller.defaultInterval`).
+  That is the configured interval, not a measurement. Record the real numbers,
+  to be recorded, no reference yet.
+- Not verified, record what you see:
+  - Whether the tracking notification filter picks the right menu.
+  - Whether open menu items redraw their text while the menu is open.
+  - Whether the window notifications fire for the Settings scene, so polling stops when it closes.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 17a. Does the tap see the app volume
+
+- Precondition: this is the volume sub question of issue 5. QuickTime Player plays the -20 dBFS
+  sine through the tool route of step 5. System volume unchanged.
+- Do: run the tool with `--meter`. Move the volume slider of QuickTime Player itself to two
+  positions, for example full and about half. Note `tap peak` and `tap rms` at each position, and
+  the slider positions. Repeat the same with an unrouted run if you want a comparison.
+- Expected: to be recorded, no reference yet. The question is whether the tap level follows the
+  slider, so whether the tap sees the app before or after its own volume. The findings hold the
+  hypothesis that the app applies its volume before the tap. This step measures it.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 18. Errors and actions
+
+- Precondition: a route that normally runs. Open the menu for each case and read the text under the
+  route toggle.
+- Do (a, permission denied): remove or deny the capture permission for the app, as in step 3.
+  Enable the route.
+  Which failure follows is not measured (step 3). Expected is one of two, each with the button
+  `Open System Settings` and not `Retry now`:
+  - Silence: after 10 seconds the text `No audio from <app> for 10 s although it plays. Likely
+    the audio capture permission is missing or denied, ...`.
+  - A failed start whose error text names `(create tap)` or `(create aggregate)`: the text
+    `The route could not start. The audio capture permission may be missing or denied.` with the
+    attempt or retries stopped note.
+  Any other failed start shows `The route could not start.` with `Retry now`. Record the exact
+  text and button you get. The button opens the generic privacy pane. The anchor of the audio
+  capture list is not verified. Record what opens, to be recorded, no reference yet.
+  To recover, grant the permission, then switch the route off and on as in step 3.
+- Do (b, device gone): unplug the X32. Expected: a text that the device is likely unplugged or
+  switched off, and that the route waits for it, with the button `Choose device`.
+  Record the text.
+- Do (c, default moved): with the X32 plugged in, move the default output to the speakers (step 8f).
+  Expected: a different text, that the device is likely no longer the default output and that the
+  app plays on the current default output meanwhile, without a button.
+  Record both texts. They must differ.
+- Do (d, retry): `Retry now` shows for a failed start that is not about the permission, the device
+  or the channels, for example an app without an audio process that was refused, and for a failed
+  engine start. Such a failure is hard to cause on purpose. If one shows, press `Retry now`.
+  Expected: the route starts again and reaches `running` once the cause is gone. If you cannot
+  cause it, write `not reproduced` in Notes and leave the boxes empty. Do not fake it.
+- Do (e, failed teardown): this is hard to cause on purpose. If a teardown step fails, expected is
+  a warning `<n> teardown step(s) failed.` with the hint that a tap or aggregate device likely
+  stays until the app quits, and a warning on the menu bar icon. If you cannot cause it, write
+  `not reproduced` in Notes and leave the boxes empty. Do not fake it.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 19. Route editor
+
+- Do: in Settings, create a route (app, device, source pair, destination pair) and save it.
+  Edit it and save. Delete it.
+  Edit a route that you switched off in the menu and save. Edit a route that is on and save.
+  Save a route and toggle another route in the menu right after, within a second or two.
+  Open the source picker for the X-USB.
+- Expected: create, edit and delete take effect at once. The menu rows follow. A deleted route is
+  torn down and the app plays on its normal output.
+- Expected: a route that the menu switched off stays off after the edit. The menu switch is not
+  stored, an edit never changes the state of the edited route.
+- Expected: after a save followed quickly by a toggle in the menu, no route is lost and no toggle
+  is undone. Record the final state of every route.
+- Expected: the source picker offers the pairs of output stream 0 of the device. That is inferred
+  from the first device buffer and not measured, to be recorded, no reference yet. Record the
+  pairs it offers for the X-USB. If you have a device with several output streams, record what it
+  offers too.
+- Result:
+- Notes:
+- [ ] Pass  [ ] Fail
+
+### 20. Settings opens in front
+
+- Precondition: another app has the focus and its window covers the screen centre.
+- Do: open the menu and choose `Settings…` (with an ellipsis). Do it again with the window already
+  open behind another app. While the menu is open, change a route state from another place, for
+  example quit its app (the route waits for the app), and watch the rows.
+- Expected: Settings opens in front of the other windows. The app is an accessory app, so the menu
+  action calls `NSApp.activate()` before `openSettings()`. Record whether it works each time.
+- Expected: the menu rows update while the menu is open, to be recorded, no reference yet.
+  Whether an open menu redraws its items is not verified.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
