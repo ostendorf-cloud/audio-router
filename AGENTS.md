@@ -4,7 +4,8 @@ Routes the audio of single macOS apps to channel pairs of any output device.
 The concept is `docs/concepts/audio-router.md`. This repository holds the menu bar app (phase 2, release 0.1.0)
 and `audio-router-proto`, the command line diagnostic tool from phase 1.
 The README describes install and use. Keep it in step with the app sections below.
-Stated limits of the release: macOS 14.2 floor, tested on macOS 27 only, arm64 only, ad hoc signed, not notarised.
+Stated limits of the release: macOS 14.2 floor, tested on macOS 27 only, arm64 only.
+Releases after 0.1.0 are signed with a Developer ID, notarized and stapled. Not verified until the first one ran.
 
 The global baseline already applies here and is not repeated below.
 
@@ -37,6 +38,18 @@ The global baseline already applies here and is not repeated below.
 - `scripts/bundle.sh` and `Resources/` build `dist/audio-router.app` (`task bundle`, `task bundle:verify`,
   `task bundle:zip`). Only the `AudioRouterApp` product goes in, never `audio-router-proto`.
   `task bundle:verify` is not in `task check`, the `bundle` CI job runs it.
+- Signing (issue 67): `scripts/sign-app.sh` signs nested code first, then the app, always with the hardened runtime
+  and `Resources/AudioRouter.entitlements`. Ad hoc without `SIGNING_IDENTITY`, Developer ID with a timestamp with it.
+  `SIGNING_REQUIRED=true` forbids the ad hoc fallback.
+  `scripts/verify-signature.sh` is the signature part of `task bundle:verify` and `task bundle:zip`,
+  `VERIFY_SIGNATURE` picks `any`, `developer-id` or `notarized`.
+  `scripts/signing-keychain.sh` creates and removes the temporary release keychain, `scripts/notarize.sh` runs
+  `notarytool` and `stapler` (`task bundle:notarize`). Each has a `_test.sh` with fake tools, run by
+  `task test:signing` (CI job `signing`, macOS). No script may print a secret value. The tests check that with
+  sentinel values, keep them when a script changes.
+  - The entitlements file is empty on purpose, its comment gives the reasons. Add a key only with a documented
+    reason in that comment. Not verified: whether the tap path needs `com.apple.security.device.audio-input`
+    under the hardened runtime. 0.1.0 already ran hardened without it.
 - `Resources/Branding` holds the SVG sources of the app icon and the menu bar symbol, see its README.
   `scripts/render-branding.sh` renders them into `Resources/AppIcon.iconset` and the menu bar PNGs next to the SVGs.
   The PNGs are committed. Render again after every SVG change.
@@ -59,7 +72,7 @@ The live service sits in `Sources/AudioRouterApp/LoginItemLive.swift`, because t
 The view takes its model from `LoginItemContext.model` in the same file, not from `@State` (see the constraints).
 Settings reads the real status on each appear and each time the app becomes active, because the Settings window
 is kept on close and `onAppear` may not fire again. It only registers the app. Restoring routes is the engine's job.
-Not verified: the behaviour with the ad hoc build, and from outside `/Applications`.
+Not verified: the behaviour with the ad hoc build and with the notarized release, and from outside `/Applications`.
 
 ## Commands
 
@@ -70,7 +83,7 @@ task check
 ```
 
 `task check` runs format, license, RouterCore import, SwiftUI macro, markdown, YAML and workflow lint
-and the cask script tests. Then it builds and tests.
+and the cask and signing script tests. Then it builds and tests.
 `task lint:cask-audit` is CI only and not part of `check` (job `cask-audit`): it needs Homebrew and taps a scratch
 tap `audio-router-ci/audit` while it runs.
 `swift build` builds all five targets.
@@ -291,7 +304,8 @@ Still missing:
 - A ruleset on `main`: required checks, merge method, no direct push.
   The check names below come from the job ids in `checks.yaml` and the called workflows' job names.
   Copy the exact names from a pull request run before writing the ruleset.
-  - `fmt`, `build`, `test`, `swiftui-macros`, `cask`, `cask-audit`, `markdownlint`, `yamllint`, `actionlint`
+  - `fmt`, `build`, `test`, `swiftui-macros`, `cask`, `cask-audit`, `signing`, `markdownlint`, `yamllint`,
+    `actionlint`
   - `renovate-config / Renovate configuration is valid`
   - `license / License headers`
   - `signoff / Every commit carries a DCO sign-off`
@@ -303,6 +317,10 @@ Already provided by the organisation, nothing to do here:
 
 - The variables `GH_APP_RELEASE_APP_ID` and `GH_APP_DEPENDENCIES_APP_ID`.
 - The secrets `GH_APP_RELEASE_PRIVATE_KEY`, `GH_APP_DEPENDENCIES_PRIVATE_KEY` and `GH_APP_SECURITY_PRIVATE_KEY`.
+- The signing secrets of `app-release.yaml`, visible to this repository only: `APPLE_CERT_P12_BASE64`,
+  `APPLE_CERT_PASSWORD`, `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`, `APPLE_NOTARY_KEY_P8_BASE64` and
+  `APPLE_TEAM_ID`, and the variable `APPLE_SIGNING_IDENTITY`. The workflow reads `APPLE_TEAM_ID` nowhere: the
+  identity carries the team id.
 - The labels `dependencies` and `release: pending`, `release: tagged`, `release: alpha`, `release: beta`,
   `release: rc`.
 
@@ -333,10 +351,13 @@ The security app is, its `DCO` check ran.
   git tag and `CHANGELOG.md`. `release.yaml` and `renovate.yaml` are copied from burnlink at the same pins.
   `renovate.json` extends `github>ostendorf-cloud/workflows#v0.3.0` like govue, gitcd and wishlist.
   The `renovate.yaml` caller has no `workflow_run` trigger, workflows#74 is not merged.
-- Local builds are signed ad hoc by the toolchain. There is no notarization.
+- Local builds, the `bundle` CI job and a manual dry run of `app-release.yaml` are signed ad hoc, because only a
+  release run gets the signing secrets. They are not notarized.
   `release.yaml` builds and publishes no binary.
-  `app-release.yaml` attaches the ad hoc signed arm64 zip to a published release.
-  It runs `task bundle`, `task bundle:verify` and `task bundle:zip`.
+  `app-release.yaml` signs with the Developer ID, notarizes, staples and attaches the arm64 zip to a published
+  release. It runs `task bundle`, `task bundle:verify`, `task bundle:zip`, `task bundle:notarize`, then
+  `task bundle:verify` and `task bundle:zip` again on the stapled app. A missing secret fails the release.
   Its `homebrew` job pushes the cask to the tap with a token of the release app scoped to `homebrew-tap`.
-  The cask strips no quarantine attribute, so Gatekeeper warns until the app is notarized.
+  The cask strips no quarantine attribute. A notarized release should open without a Gatekeeper warning.
+  Not verified until the first notarized release ran.
 - `lint:license` in the Taskfile and `find-commands` in `checks.yaml` are kept in step by hand.

@@ -37,7 +37,8 @@ Route the audio of single macOS apps to channel pairs of any output device.
   ```
 
   - The cask needs an Apple silicon Mac with macOS 14 or later. The app itself needs 14.2.
-  - The cask installs the same ad hoc signed app. The Gatekeeper warning below remains until the app is notarized.
+  - The cask installs the release zip. A release built after the signing change is notarized, so Gatekeeper
+    should not warn. Not verified until a notarized release ran. Releases up to 0.1.0 are ad hoc signed and warn.
   - Not verified: an install from the tap. The first cask reaches the tap with the first release after this change.
   - `brew uninstall --zap --cask audio-router` also removes the stored routes and the preferences.
     It cannot remove the login item registration. That stays in System Settings, Login Items.
@@ -52,17 +53,18 @@ Route the audio of single macOS apps to channel pairs of any output device.
 - Unzip the file and drag `audio-router.app` to `/Applications`.
   Expected: the app appears in `/Applications`. Not verified.
   Running it from another folder is not verified.
-- The app is signed ad hoc and not notarised.
-  Notarisation needs a Developer ID Application certificate from the paid Apple Developer Program.
-  That certificate does not exist yet.
-- Gatekeeper is assumed to block the first open. Not verified.
-  Open the app in one of these ways. Each way is not verified.
-  - Right click the app, choose Open, then confirm. Assumed, not verified.
-  - System Settings, Privacy & Security, then Open Anyway. Not verified.
-  - In a terminal: `xattr -dr com.apple.quarantine /Applications/audio-router.app`. Not verified.
-  - Expected after any way: the audio-router symbol appears in the menu bar. Not verified.
-- Each new release may ask for the audio capture permission again, until a Developer ID exists.
-  Not verified.
+- The release app is signed with a Developer ID Application certificate, notarized by Apple and stapled.
+  - Expected: it opens on the first double click without the "Apple could not verify" warning.
+    Not verified until the first notarized release ran.
+  - Check a download in a terminal. Expected: `accepted` and `source=Notarized Developer ID`.
+
+    ```sh
+    spctl -a -vvv -t exec /Applications/audio-router.app
+    ```
+
+  - Releases up to 0.1.0 are ad hoc signed and not notarized. For them, and for a local build, see Development.
+- The audio capture permission belongs to the signing identity, which stays the same from release to release.
+  So the permission should persist across updates. Not verified.
 
 ## Use
 
@@ -89,7 +91,7 @@ Route the audio of single macOS apps to channel pairs of any output device.
   - Each route shows its state and, while the menu is open, live levels as text.
   - An issue shows a message and a button, for example open System Settings or retry.
 - Start at login is a toggle in Settings under Startup.
-  The login item with an ad hoc signed app is not verified.
+  The login item is not verified, neither with the notarized release nor with an ad hoc build.
   If macOS needs an approval, the toggle shows a hint and a button that opens Login Items.
 - Uninstall:
   - Quit the app from the menu.
@@ -116,10 +118,26 @@ Route the audio of single macOS apps to channel pairs of any output device.
     ```
 
 - Build the app bundle:
-  - `task bundle` builds `dist/audio-router.app`, arm64, ad hoc signed.
-  - `task bundle:verify` checks the plist, signature, architecture and that the prototype is absent.
-  - `task bundle:zip` writes `dist/audio-router-<version>-arm64.zip`.
-- The release workflow `app-release.yaml` attaches the zip and its `.sha256` file to a published release.
+  - `task bundle` builds `dist/audio-router.app`, arm64, signed ad hoc with the hardened runtime.
+  - With `SIGNING_IDENTITY="Developer ID Application: <name> (<team id>)"` it signs with that identity and a
+    secure timestamp instead. `SIGNING_KEYCHAIN` names the keychain, `SIGNING_REQUIRED=true` forbids the ad hoc
+    fallback. See `scripts/sign-app.sh`.
+  - `task bundle:verify` checks the plist, signature, hardened runtime, entitlements, architecture and that the
+    prototype is absent. `VERIFY_SIGNATURE=developer-id` adds the Developer ID chain and the timestamp,
+    `VERIFY_SIGNATURE=notarized` adds `spctl` and `stapler validate`. See `scripts/verify-signature.sh`.
+  - `task bundle:zip` writes `dist/audio-router-<version>-arm64.zip` and verifies the signature of the unzipped copy.
+  - `task bundle:notarize` submits the zip with `notarytool` and staples the app. It needs the `APPLE_NOTARY_*`
+    variables of `scripts/notarize.sh`. Run `task bundle:zip` again afterwards.
+  - `task test:signing` tests the signing scripts offline with fake tools.
+- A local ad hoc build is not notarized. Gatekeeper is assumed to block it when it carries the quarantine flag,
+  for example after a download. Open it in one of these ways. Each way is not verified.
+  - Right click the app, choose Open, then confirm.
+  - System Settings, Privacy & Security, then Open Anyway.
+  - In a terminal: `xattr -dr com.apple.quarantine /Applications/audio-router.app`.
+  - A new ad hoc build may ask for the audio capture permission again. Not verified.
+- The release workflow `app-release.yaml` signs, notarizes and staples the app on a published release.
+  Then it attaches the zip and its `.sha256` file to the release.
+  - The secrets and the variable it needs are listed in `AGENTS.md`.
   - Its `homebrew` job then pushes `Casks/audio-router.rb` to `ostendorf-cloud/homebrew-tap`.
     `scripts/render-cask.sh` renders the cask, `scripts/publish-homebrew-cask.sh` verifies the zip and pushes it.
   - To push the cask of a published release again, run `app-release.yaml` by hand on `main` with `cask-tag` set.

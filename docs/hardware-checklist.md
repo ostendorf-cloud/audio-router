@@ -74,17 +74,27 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
   shasum -a 256 -c audio-router-<version>-arm64.zip.sha256
   ```
 
-  Unzip with Finder. Open `audio-router.app` by double click.
-- Expected: the checksum line reports `OK`. Gatekeeper blocks the first open, because the app is
-  ad hoc signed and not notarised (README, Install). The block is expected, not a defect.
-- Then open it with one of the three documented ways.
-  Right click, Open, or System Settings, Privacy & Security, Open Anyway, or
-  `xattr -dr com.apple.quarantine <path to the app>`.
+  Unzip with Finder. Before the first open run:
+
+  ```sh
+  spctl -a -vvv -t exec audio-router.app
+  codesign -dvv audio-router.app
+  xcrun stapler validate audio-router.app
+  ```
+
+  Open `audio-router.app` by double click.
+- Expected: the checksum line reports `OK`. `spctl` prints `accepted` and `source=Notarized Developer ID`.
+  `codesign` shows `flags=0x10000(runtime)`, `Authority=Developer ID Application: ...` and a `Timestamp=` line.
+  `stapler` reports that the validate action worked.
+- Expected: Gatekeeper shows no "Apple could not verify" warning. A plain notice that the app was downloaded
+  from the internet, with an Open button, may still appear. That is not a defect.
+- A release up to 0.1.0 is ad hoc signed and Gatekeeper blocks it. For such a build open it with one of the
+  ways in the README, Development, and record which way you used.
 - Expected: after that the app starts, the audio-router symbol appears in the menu bar and no Dock icon
   (`LSUIElement`). The menu has a Quit item.
   Switch System Settings, Appearance between Light and Dark: the symbol follows the menu bar colour and stays
   readable. Switch Routing off: the symbol gets a slash.
-  Record the exact Gatekeeper text and which way you used.
+  Record the exact Gatekeeper text, if any.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -335,7 +345,7 @@ These are the open items of findings section 1. Record the answers here, not in 
 - Do: enable the login item in the app. Reboot the Mac. Log in. Do not open the app yourself.
   Step 16 covers the login item with a log out and in, without a reboot.
 - Expected: the app starts at login, shows its menu bar icon, loads the stored routes and the routes
-  reach `running` once their device and app are present. `SMAppService` with an ad hoc signed app is
+  reach `running` once their device and app are present. `SMAppService` with the release app is
   not measured, no reference yet. Record whether macOS shows a login item approval notice.
 - Result:
 - Notes:
@@ -367,12 +377,12 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 15. A second build gets a new permission prompt, or not
 
-- Do: after step 2 granted the permission, install a second ad hoc signed build over the first.
-  Use the next release asset, or a second `task bundle` of the same commit with a new `VERSION`.
-  Open it past Gatekeeper as in step 1. Enable a route.
-- Expected: to be recorded, no reference yet. The README says each new release asks for the
-  permission again, decision D11 accepts that, and TCC behaviour with ad hoc signatures is not
-  verified. Record: prompt yes or no, and whether the old entry stays in System Settings.
+- Do: after step 2 granted the permission, install a second build over the first.
+  Use the next release asset. Open it as in step 1. Enable a route.
+- Expected: to be recorded, no reference yet. Both release assets carry the same Developer ID, so the
+  README expects the grant to persist. That is not verified. Record: prompt yes or no, and whether
+  the old entry stays in System Settings. Write in Notes whether both builds were notarized releases
+  or ad hoc builds: an ad hoc build may prompt again, decision D11 accepted that for 0.1.0.
 - Result:
 - Notes:
 - [ ] Pass  [ ] Fail
@@ -393,8 +403,8 @@ expected result says `to be recorded, no reference yet`.
   The approval state may not be reachable on demand. If macOS does not show it, write
   `not reproduced` in Notes for that part.
 - Expected: after the login the app starts, the menu bar icon shows and the stored routes come back
-  and reach `running` once their device and app are present. This is not measured for an ad hoc
-  signed build, to be recorded, no reference yet.
+  and reach `running` once their device and app are present. This is not measured for the release
+  app, to be recorded, no reference yet.
 - Expected: after each change in System Settings the toggle shows the real status when Settings is
   opened again. The toggle also follows the status when the app becomes active. Record the toggle
   state for each case.
@@ -531,7 +541,8 @@ expected result says `to be recorded, no reference yet`.
 - The MacBook speaker rows, a stereo input device and a device with several input streams
   (open in `docs/prototype-findings.md`, not part of the X32 release check).
 - macOS versions below the one in the header (findings section 6).
-- Notarisation. The app is ad hoc signed.
+- The notarization itself. The release workflow checks it with `spctl` and `stapler validate`, step 1
+  checks the downloaded asset once more.
 
 ## Sign-off
 
