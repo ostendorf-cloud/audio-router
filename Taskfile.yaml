@@ -18,12 +18,26 @@ tasks:
       - swift test
 
   bundle:
-    desc: Build dist/audio-router.app (arm64 release, ad hoc signed). VERSION overrides the git describe version.
+    desc: >-
+      Build dist/audio-router.app (arm64 release). Ad hoc signed, or with the Developer ID in SIGNING_IDENTITY.
+      VERSION overrides the git describe version.
     cmds:
       - scripts/bundle.sh
 
+  bundle:notarize:
+    desc: >-
+      Notarize the zip of bundle:zip and staple dist/audio-router.app. Needs the APPLE_NOTARY_* variables,
+      see scripts/notarize.sh. Run bundle:zip again afterwards.
+    cmds:
+      - |
+        set -euo pipefail
+        version="$(plutil -extract CFBundleShortVersionString raw dist/audio-router.app/Contents/Info.plist)"
+        scripts/notarize.sh "dist/audio-router-${version}-arm64.zip" dist/audio-router.app
+
   bundle:zip:
-    desc: Zip dist/audio-router.app to dist/audio-router-<version>-arm64.zip with ditto. Run after bundle.
+    desc: >-
+      Zip dist/audio-router.app to dist/audio-router-<version>-arm64.zip with ditto and verify the signature of
+      the unzipped copy. Run after bundle.
     cmds:
       - |
         set -euo pipefail
@@ -42,10 +56,19 @@ tasks:
           echo "the zip must not contain AppleDouble or __MACOSX entries" >&2
           exit 1
         fi
+        # The zip is what users get: its unzipped app must keep the seal (and the ticket on a release).
+        check="$(mktemp -d "${TMPDIR:-/tmp}/audio-router-zip.XXXXXXXX")"
+        status=0
+        ditto -x -k "${zip}" "${check}" && scripts/verify-signature.sh "${check}/audio-router.app" || status=$?
+        rm -rf "${check}"
+        [ "${status}" -eq 0 ] || exit "${status}"
         echo "${zip}"
 
   bundle:verify:
-    desc: Check dist/audio-router.app (plist keys, signature, runtime, no sandbox, arm64 only, no prototype). Run after bundle.
+    desc: >-
+      Check dist/audio-router.app (plist keys, signature, runtime, entitlements, arm64 only, no prototype).
+      VERIFY_SIGNATURE=developer-id or notarized adds the release checks, see scripts/verify-signature.sh.
+      Run after bundle.
     cmds:
       - |
         set -euo pipefail
@@ -53,12 +76,7 @@ tasks:
         plist="${app}/Contents/Info.plist"
         fail() { echo "$1" >&2; exit 1; }
         plutil -lint "${plist}"
-        codesign --verify --deep --strict "${app}"
-        # Hardened runtime on, and no entitlements at all, so no sandbox entitlement.
-        info="$(codesign -dv "${app}" 2>&1)"
-        [[ "${info}" == *"flags="*runtime* ]] || fail "the signature has no hardened runtime flag"
-        ents="$(codesign -d --entitlements - "${app}" 2>/dev/null || true)"
-        [ -z "${ents}" ] || fail "the signature carries entitlements"
+        scripts/verify-signature.sh "${app}"
         [ "$(plutil -extract LSUIElement raw "${plist}")" = "true" ] || fail "LSUIElement is not true"
         [ "$(plutil -extract LSMinimumSystemVersion raw "${plist}")" = "14.2" ] || fail "LSMinimumSystemVersion is not 14.2"
         usage="$(plutil -extract NSAudioCaptureUsageDescription raw "${plist}")"
@@ -85,6 +103,16 @@ tasks:
       - scripts/render-cask_test.sh
       - scripts/publish-homebrew-cask_test.sh
       - scripts/audit-cask_test.sh
+
+  test:signing:
+    desc: >-
+      Tests of the signing scripts (sign, verify, keychain, notarize) with fake codesign, security, spctl and
+      xcrun, offline, macOS only
+    cmds:
+      - scripts/sign-app_test.sh
+      - scripts/verify-signature_test.sh
+      - scripts/signing-keychain_test.sh
+      - scripts/notarize_test.sh
 
   # CI only: not part of "check", because it needs Homebrew and taps a scratch tap named
   # audio-router-ci/audit while it runs. The hash is a placeholder: without --online the audit
@@ -172,5 +200,6 @@ tasks:
       - task: lint:yaml
       - task: lint:actions
       - task: test:cask
+      - task: test:signing
       - task: build
       - task: test

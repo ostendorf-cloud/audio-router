@@ -2,8 +2,9 @@
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
 #
-# Builds dist/audio-router.app: arm64 release build, Info.plist, icon, menu bar images, ad hoc signature.
-# Needs the Swift toolchain and the macOS tools codesign, iconutil and plutil. No Xcode.
+# Builds dist/audio-router.app: arm64 release build, Info.plist, icon, menu bar images, signature.
+# Signs with the Developer ID identity in $SIGNING_IDENTITY when it is set, ad hoc otherwise
+# (scripts/sign-app.sh). Needs the Swift toolchain and the macOS tools codesign, iconutil and plutil. No Xcode.
 #   scripts/bundle.sh             build and sign
 #   scripts/bundle.sh --dry-run   print the rendered Info.plist and stop
 # The version comes from $VERSION, else from `git describe --tags --always`, else 0.0.0-dev.
@@ -83,9 +84,9 @@ for state in off running warning error; do
     "${app}/Contents/Resources/"
 done
 
-# Ad hoc signature, hardened runtime, no entitlements file and so no sandbox entitlement.
-codesign --force --sign - --options runtime "${app}"
-codesign --verify --deep --strict "${app}"
+# Hardened runtime, Resources/AudioRouter.entitlements (no sandbox). Developer ID when SIGNING_IDENTITY
+# is set, ad hoc otherwise. See scripts/sign-app.sh for SIGNING_KEYCHAIN and SIGNING_REQUIRED.
+"${root}/scripts/sign-app.sh" "${app}"
 
 ok=true
 echo "built ${app} (version ${version})"

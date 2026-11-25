@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Simon Ostendorf -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Entitlements of the app, signed into it by scripts/sign-app.sh. Empty on purpose.
+  Every key added here needs a comment with its documented reason.
+
+  - No com.apple.security.app-sandbox: the app is not sandboxed.
+  - No com.apple.security.device.audio-input. Apple documents it as the hardened runtime entitlement to
+    "record audio using the built-in microphone and access audio input using Core Audio". Apple's article
+    "Capturing system audio with Core Audio taps" names only NSAudioCaptureUsageDescription in Info.plist
+    and the system audio recording prompt for a tap, and no entitlement. Not verified: whether reading the
+    aggregate device that holds the tap counts as audio input under the hardened runtime. Release 0.1.0
+    already ran with the hardened runtime and without this key, so this file changes nothing there.
+    Add the key only after a signed build is measured to stay silent without it.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict/>
+</plist>
