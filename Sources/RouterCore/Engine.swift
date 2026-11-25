@@ -256,6 +256,28 @@ public final class RouteEngine: @unchecked Sendable {
         }
     }
 
+    /// The levels of the last full interval of every running route, keyed by route id. A route that does
+    /// not run, or whose meter is still priming, has no entry.
+    ///
+    /// Reader driven: each call reads and clears the meter memory of every running session, and a reading
+    /// covers the interval before the last read, see `MeterBlock`. So the caller may poll at any rate.
+    /// The engine itself never reads the meter, so nothing is measured while nobody asks. Only one caller
+    /// may poll, a second one would take intervals away from the first. The call blocks until the engine
+    /// queue answers, so call it off the main thread.
+    public func meterReadings() -> [UUID: MeterReading] {
+        dispatchPrecondition(condition: .notOnQueue(queue))
+        return queue.sync {
+            var readings: [UUID: MeterReading] = [:]
+            for id in order {
+                guard let record = records[id], let session = record.session, case .running = record.state,
+                    let reading = session.meterReading()
+                else { continue }
+                readings[id] = reading
+            }
+            return readings
+        }
+    }
+
     /// Returns when the queue has no work left. For tests.
     func waitUntilIdle() {
         while queue.sync(execute: { reconcilePending }) {}
@@ -543,9 +565,9 @@ public final class RouteEngine: @unchecked Sendable {
         if any { startPolling() }
     }
 
-    /// Meters, silence and the tap check. They only ever change warnings, never the state.
+    /// Silence and the tap check. They only ever change warnings, never the state. The meter is not read
+    /// here, see `meterReadings`.
     private func update(_ record: Record, _ session: any EngineSession) {
-        record.meter = session.meterReading()
         let now = clock.now()
         switch session.signalState(elapsed: now - record.startedAt, silenceAfter: config.silenceAfter) {
         case .waiting:
@@ -583,7 +605,7 @@ public final class RouteEngine: @unchecked Sendable {
         let statuses = order.compactMap { id in
             records[id].map {
                 RouteStatus(
-                    route: $0.route, state: $0.state, meter: $0.meter, teardownFailures: $0.teardownFailures,
+                    route: $0.route, state: $0.state, teardownFailures: $0.teardownFailures,
                     startError: $0.failedStartError)
             }
         }
@@ -644,7 +666,6 @@ public final class RouteEngine: @unchecked Sendable {
         var startedAt: TimeInterval = 0
         var presentSince: TimeInterval?
         var tapChecked = false
-        var meter: MeterReading?
         var rateWarnings: [RouteWarning] = []
         var silence: [String]?
         var tapWarning: String?
@@ -687,7 +708,6 @@ public final class RouteEngine: @unchecked Sendable {
             startedAt = 0
             presentSince = nil
             tapChecked = false
-            meter = nil
             rateWarnings = []
             silence = nil
             tapWarning = nil

@@ -76,6 +76,8 @@ final class FakeShellEngine: ShellEngine, @unchecked Sendable {
         return [:]
     }
 
+    func meterReadings() -> [UUID: MeterReading] { [:] }
+
     private struct NoCancel: Cancellable {
         func cancel() {}
     }
@@ -92,7 +94,7 @@ enum ShellSamples {
     static func snapshot(isOn: Bool = true, _ states: [(Route, RouteState)]) -> EngineSnapshot {
         EngineSnapshot(
             isOn: isOn,
-            routes: states.map { RouteStatus(route: $0.0, state: $0.1, meter: nil, teardownFailures: []) },
+            routes: states.map { RouteStatus(route: $0.0, state: $0.1, teardownFailures: []) },
             devices: [], apps: [])
     }
 }

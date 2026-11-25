@@ -109,7 +109,10 @@ final class FakeSession: EngineSession, @unchecked Sendable {
 
     func routeInfo() -> RouteInfo? { maker.script.info }
 
-    func meterReading() -> MeterReading? { maker.script.meter }
+    func meterReading() -> MeterReading? {
+        maker.log.append("meter \(name)")
+        return maker.script.meter
+    }
 
     func signalState(elapsed: TimeInterval, silenceAfter: TimeInterval) -> SignalState {
         if maker.script.signal { return .present }

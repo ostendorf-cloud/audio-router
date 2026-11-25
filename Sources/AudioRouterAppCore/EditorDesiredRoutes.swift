@@ -48,6 +48,10 @@ public final class DesiredRoutesEngine: ShellEngine, DesiredRoutesProviding, @un
 
     public func setOn(_ on: Bool) { inner.setOn(on) }
 
+    public func retryNow(_ id: UUID) { inner.retryNow(id) }
+
+    public func meterReadings() -> [UUID: MeterReading] { inner.meterReadings() }
+
     @discardableResult
     public func stopAll() -> [UUID: [String]] { inner.stopAll() }
 }

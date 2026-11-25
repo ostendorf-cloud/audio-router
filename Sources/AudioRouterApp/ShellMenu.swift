@@ -27,6 +27,7 @@ struct ShellMenu: View {
                         set: { model.setRouteEnabled(row.id, $0) }))
                 ErrorsRouteIssueRows(model: model, routeID: row.id)
             }
+            MeterMenuLines(model: model)
         }
         Divider()
         // An accessory app is not active, so the settings window would open behind other windows.
@@ -36,7 +37,7 @@ struct ShellMenu: View {
             openSettings()
         }
         .keyboardShortcut(",")
-        Button("Quit audio-router") {
+        Button(MeterMenuTracker.quitTitle) {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")

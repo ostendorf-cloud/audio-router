@@ -198,7 +198,7 @@ import Testing
         switchedOff.enabled = false
         let snapshot = EngineSnapshot(
             isOn: true,
-            routes: [RouteStatus(route: switchedOff, state: .disabled, meter: nil, teardownFailures: [])],
+            routes: [RouteStatus(route: switchedOff, state: .disabled, teardownFailures: [])],
             devices: [], apps: [])
         let rig = Rig(stored: [first], snapshot: snapshot)
         rig.fillNew(pair: 5)

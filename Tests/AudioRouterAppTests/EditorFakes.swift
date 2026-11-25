@@ -68,13 +68,15 @@ final class LateApplyEngine: ShellEngine, @unchecked Sendable {
         return EngineSnapshot(
             isOn: true,
             routes: routes.map {
-                RouteStatus(route: $0, state: $0.enabled ? .waitingForApp : .disabled, meter: nil, teardownFailures: [])
+                RouteStatus(route: $0, state: $0.enabled ? .waitingForApp : .disabled, teardownFailures: [])
             }, devices: [], apps: [])
     }
 
     func observe(_ handler: @escaping @Sendable (EngineSnapshot) -> Void) -> any Cancellable { NoCancel() }
     func start() throws {}
     func setOn(_ on: Bool) {}
+    func retryNow(_ id: UUID) {}
+    func meterReadings() -> [UUID: MeterReading] { [:] }
     func stopAll() -> [UUID: [String]] { [:] }
 
     func setRoutes(_ routes: [Route]) {

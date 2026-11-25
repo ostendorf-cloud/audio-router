@@ -11,6 +11,7 @@ struct ShellSettings: View {
             Section("Routes") {
                 EditorRouteList(model: EditorContext.model)
             }
+            MeterSettingsSection()
             LoginItemSection()
             Section("About") {
                 LabeledContent("audio-router", value: ShellAbout.version())

@@ -16,6 +16,9 @@ public protocol ShellEngine: Sendable {
     func setOn(_ on: Bool)
     func retryNow(_ id: UUID)
     @discardableResult func stopAll() -> [UUID: [String]]
+    /// The levels of the last interval of every running route. Blocks like `setOn`, so call it off the main
+    /// thread. Reader driven, see `RouteEngine.meterReadings`. Used by `MeterPoller` only.
+    func meterReadings() -> [UUID: MeterReading]
 }
 
 extension RouteEngine: ShellEngine {}

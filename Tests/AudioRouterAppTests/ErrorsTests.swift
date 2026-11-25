@@ -34,7 +34,7 @@ private func snapshot(
         isOn: true,
         routes: [
             RouteStatus(
-                route: route, state: state, meter: nil, teardownFailures: teardown, startError: startError)
+                route: route, state: state, teardownFailures: teardown, startError: startError)
         ],
         devices: devices, apps: apps)
 }
@@ -234,11 +234,11 @@ private func golden(_ name: String) throws -> String {
         off.enabled = false
         let failed = RouteState.failed(.refused(message: "x"))
         let disabled = EngineSnapshot(
-            isOn: true, routes: [RouteStatus(route: off, state: failed, meter: nil, teardownFailures: [])],
+            isOn: true, routes: [RouteStatus(route: off, state: failed, teardownFailures: [])],
             devices: [], apps: [])
         #expect(RouteIssues.of(disabled.routes[0], in: disabled).isEmpty)
         let globalOff = EngineSnapshot(
-            isOn: false, routes: [RouteStatus(route: music, state: failed, meter: nil, teardownFailures: [])],
+            isOn: false, routes: [RouteStatus(route: music, state: failed, teardownFailures: [])],
             devices: [], apps: [])
         #expect(RouteIssues.of(globalOff.routes[0], in: globalOff).isEmpty)
     }
@@ -467,7 +467,7 @@ private func warningSamples(_ warning: RouteWarning) -> RouteWarning {
         let off = EngineSnapshot(
             isOn: false,
             routes: [
-                RouteStatus(route: music, state: .failed(.refused(message: "x")), meter: nil, teardownFailures: ["t"])
+                RouteStatus(route: music, state: .failed(.refused(message: "x")), teardownFailures: ["t"])
             ], devices: [], apps: [])
         #expect(ShellStatus.of(off, startFailed: true) == .off)
         #expect(RouteIssues.worstSeverity(off) == nil)

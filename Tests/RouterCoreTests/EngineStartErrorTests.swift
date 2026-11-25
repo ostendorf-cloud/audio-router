@@ -25,7 +25,7 @@ private func transient() -> RouterError {
         try rig.run([a])
         #expect(rig.state(a) == .running(warnings: []))
         #expect(startError(rig) == nil)
-        let status = RouteStatus(route: a, state: .waitingForApp, meter: nil, teardownFailures: [])
+        let status = RouteStatus(route: a, state: .waitingForApp, teardownFailures: [])
         #expect(status.startError == nil)
     }
 
