@@ -30,7 +30,18 @@ Route the audio of single macOS apps to channel pairs of any output device.
 
 ## Install
 
-- Download `audio-router-<version>-arm64.zip` and its `.sha256` file from the GitHub release.
+- With Homebrew:
+
+  ```sh
+  brew install --cask ostendorf-cloud/tap/audio-router
+  ```
+
+  - The cask needs an Apple silicon Mac with macOS 14 or later. The app itself needs 14.2.
+  - The cask installs the same ad hoc signed app. The Gatekeeper warning below remains until the app is notarized.
+  - Not verified: an install from the tap. The first cask reaches the tap with the first release after this change.
+  - `brew uninstall --zap --cask audio-router` also removes the stored routes and the preferences.
+
+- Without Homebrew, download `audio-router-<version>-arm64.zip` and its `.sha256` file from the GitHub release.
 - Put both files in one folder and verify the download:
 
   ```sh
@@ -108,6 +119,11 @@ Route the audio of single macOS apps to channel pairs of any output device.
   - `task bundle:verify` checks the plist, signature, architecture and that the prototype is absent.
   - `task bundle:zip` writes `dist/audio-router-<version>-arm64.zip`.
 - The release workflow `app-release.yaml` attaches the zip and its `.sha256` file to a published release.
+  - Its `homebrew` job then pushes `Casks/audio-router.rb` to `ostendorf-cloud/homebrew-tap`.
+    `scripts/render-cask.sh` renders the cask, `scripts/publish-homebrew-cask.sh` verifies the zip and pushes it.
+  - To push the cask of a published release again, run `app-release.yaml` by hand on `main` with `cask-tag` set.
+  - `task test:cask` tests the cask scripts offline. `task lint:cask-audit` runs `brew audit` and `brew style`.
+    It taps a scratch tap, so only CI runs it.
 - Open questions and measurements: [docs/prototype-findings.md](docs/prototype-findings.md).
 - What the owner checks by hand before a release: [docs/hardware-checklist.md](docs/hardware-checklist.md).
 - Rules for contributors and agents: [AGENTS.md](AGENTS.md).

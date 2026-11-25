@@ -43,6 +43,10 @@ The global baseline already applies here and is not repeated below.
   `ShellStatus.imageName` names the menu bar image of each status. `bundle.sh` copies the PNGs into
   `Contents/Resources`, and `ShellMenuBarIcon` loads them as template images.
   Outside the bundle, for example with `swift run`, it falls back to the SF Symbol `ShellStatus.symbolName`.
+- `scripts/render-cask.sh`, `scripts/publish-homebrew-cask.sh` and `scripts/audit-cask.sh` are the Homebrew cask.
+  The `homebrew` job of `app-release.yaml` renders `Casks/audio-router.rb` from the hash of the published zip and
+  pushes it to `ostendorf-cloud/homebrew-tap`. The cask is generated: never edit it in the tap, change the render
+  script. Each script has a `_test.sh` with a fake `gh` or `brew`, run by `task test:cask`.
 - `Tests/RouterCoreTests` has the unit tests (Swift Testing) and the fakes.
   `Tests/RouterCoreAudioTests` runs the real time code on in memory buffer lists.
 - `docs/prototype-findings.md` is a template the owner fills from a real Mac. Never fill it with guesses.
@@ -65,8 +69,10 @@ swift test
 task check
 ```
 
-`task check` runs format, license, RouterCore import, SwiftUI macro, markdown, YAML and workflow lint.
-Then it builds and tests.
+`task check` runs format, license, RouterCore import, SwiftUI macro, markdown, YAML and workflow lint
+and the cask script tests. Then it builds and tests.
+`task lint:cask-audit` is CI only and not part of `check` (job `cask-audit`): it needs Homebrew and taps a scratch
+tap `audio-router-ci/audit` while it runs.
 `swift build` builds all five targets.
 `task --list` shows the single targets.
 The prototype binary:
@@ -285,7 +291,7 @@ Still missing:
 - A ruleset on `main`: required checks, merge method, no direct push.
   The check names below come from the job ids in `checks.yaml` and the called workflows' job names.
   Copy the exact names from a pull request run before writing the ruleset.
-  - `fmt`, `build`, `test`, `swiftui-macros`, `markdownlint`, `yamllint`, `actionlint`
+  - `fmt`, `build`, `test`, `swiftui-macros`, `cask`, `cask-audit`, `markdownlint`, `yamllint`, `actionlint`
   - `renovate-config / Renovate configuration is valid`
   - `license / License headers`
   - `signoff / Every commit carries a DCO sign-off`
@@ -301,6 +307,8 @@ Already provided by the organisation, nothing to do here:
   `release: rc`.
 
 Not verified: that the release and dependencies GitHub Apps are installed on this repository.
+Not verified: that the release app is installed on `ostendorf-cloud/homebrew-tap`. gitcd's `homebrew` job mints its
+tap token from the same app.
 The security app is, its `DCO` check ran.
 
 ## Deviations
@@ -325,8 +333,10 @@ The security app is, its `DCO` check ran.
   git tag and `CHANGELOG.md`. `release.yaml` and `renovate.yaml` are copied from burnlink at the same pins.
   `renovate.json` extends `github>ostendorf-cloud/workflows#v0.3.0` like govue, gitcd and wishlist.
   The `renovate.yaml` caller has no `workflow_run` trigger, workflows#74 is not merged.
-- Local builds are signed ad hoc by the toolchain. There is no notarization and no Homebrew formula.
+- Local builds are signed ad hoc by the toolchain. There is no notarization.
   `release.yaml` builds and publishes no binary.
   `app-release.yaml` attaches the ad hoc signed arm64 zip to a published release.
   It runs `task bundle`, `task bundle:verify` and `task bundle:zip`.
+  Its `homebrew` job pushes the cask to the tap with a token of the release app scoped to `homebrew-tap`.
+  The cask strips no quarantine attribute, so Gatekeeper warns until the app is notarized.
 - `lint:license` in the Taskfile and `find-commands` in `checks.yaml` are kept in step by hand.
