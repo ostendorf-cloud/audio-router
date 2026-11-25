@@ -78,6 +78,24 @@ private let video = ShellSamples.video
         #expect(Set(all.map(\.symbolName)).count == 4)
     }
 
+    @Test func everyStatusHasADistinctImage() {
+        let all: [ShellStatus] = [.off, .running, .warning, .error]
+        #expect(Set(all.map(\.imageName)).count == 4)
+    }
+
+    /// `scripts/bundle.sh` copies these files into the app. A renamed status or a missing render fails here.
+    @Test(arguments: [ShellStatus.off, .running, .warning, .error])
+    func everyStatusImageExistsAtOneAndTwoTimes(status: ShellStatus) {
+        let branding = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../../Resources/Branding")
+            .standardizedFileURL
+        for file in ["\(status.imageName).png", "\(status.imageName)@2x.png", "\(status.imageName).svg"] {
+            let path = branding.appendingPathComponent(file).path
+            #expect(FileManager.default.fileExists(atPath: path), "missing \(path)")
+        }
+    }
+
     @Test func rowStatesMapFromRouteStates() {
         #expect(ShellRowState.of(.disabled) == .disabled)
         #expect(ShellRowState.of(.starting) == .starting)

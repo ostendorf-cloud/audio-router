@@ -16,7 +16,19 @@ public enum ShellStatus: Equatable, Sendable {
     /// A route failed, or the engine could not start.
     case error
 
-    /// The SF Symbol of the menu bar icon.
+    /// The name of the menu bar template image, without extension. `scripts/bundle.sh` copies
+    /// `Resources/Branding/<name>.png` and `<name>@2x.png` into `Contents/Resources` of the app.
+    public var imageName: String {
+        switch self {
+        case .off: "menubar-off"
+        case .running: "menubar-running"
+        case .warning: "menubar-warning"
+        case .error: "menubar-error"
+        }
+    }
+
+    /// The SF Symbol the menu bar shows when the template image is missing, which is the case for a
+    /// binary that runs outside the app bundle, for example from `swift run`.
     public var symbolName: String {
         switch self {
         case .off: "speaker.slash"
