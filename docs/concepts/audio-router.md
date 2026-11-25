@@ -153,8 +153,9 @@ The scope of the first app release, 0.1.0, is fixed in the section Decisions for
 
 - Phase 1: command line prototype, one app to one channel pair. Proves latency, mute behaviour and the
   permission flow.
-- Phase 2, release 0.1.0: the menu bar app. Routes with two pickers, the profile file, device
-  changes and the Bluetooth wait, late apps, login item, ad hoc signed release builds.
+- Phase 2, release 0.1.0: the menu bar app. Routes with two pickers, the stored routes file, live meters,
+  errors with actions, device loss and the default output rule (the route waits and the app plays on the new
+  default), late apps, login item, ad hoc signed arm64 release builds. The release waits for the hardware checklist.
 - Phase 3, after 0.1.0: candidates such as the groups matrix view, device inputs, cross device
   routing and gain. See the backlog below.
 - Phase 4: Developer ID signing and notarisation, when the owner has the account.
