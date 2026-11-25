@@ -20,6 +20,9 @@
 #   zap: RouteStore keeps the routes in ~/Library/Application Support/audio-router.
 #     The preferences file is named after CFBundleIdentifier in
 #     Resources/Info.plist.template.
+#   livecheck: strategy :github_latest reads GitHub's "latest" release, which skips
+#     pre-releases. The repository publishes rc pre-releases, so a scan of all
+#     releases could report an rc as the newest version.
 #   No postflight: the quarantine attribute stays, and Gatekeeper keeps
 #     warning until the app is signed and notarized.
 set -euo pipefail

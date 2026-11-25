@@ -40,6 +40,7 @@ Route the audio of single macOS apps to channel pairs of any output device.
   - The cask installs the same ad hoc signed app. The Gatekeeper warning below remains until the app is notarized.
   - Not verified: an install from the tap. The first cask reaches the tap with the first release after this change.
   - `brew uninstall --zap --cask audio-router` also removes the stored routes and the preferences.
+    It cannot remove the login item registration. That stays in System Settings, Login Items.
 
 - Without Homebrew, download `audio-router-<version>-arm64.zip` and its `.sha256` file from the GitHub release.
 - Put both files in one folder and verify the download:
