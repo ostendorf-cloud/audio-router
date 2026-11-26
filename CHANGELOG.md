@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.1.0-rc.2](https://github.com/ostendorf-cloud/audio-router/compare/v0.1.0-rc.1...v0.1.0-rc.2) (2026-11-26)
+
+### Bug Fixes
+
+- **release:** poll the notary service and resume a submission by id ([#76](https://github.com/ostendorf-cloud/audio-router/pull/76))
+
 ## v0.1.0-rc.1 (2026-11-25)
 
 ### Features
