@@ -47,6 +47,10 @@ The global baseline already applies here and is not repeated below.
   `notarytool` and `stapler` (`task bundle:notarize`). Each has a `_test.sh` with fake tools, run by
   `task test:signing` (CI job `signing`, macOS). No script may print a secret value. The tests check that with
   sentinel values, keep them when a script changes.
+  `notarize.sh` polls for up to `NOTARY_TIMEOUT` (45m in the workflow). A timeout prints the submission id.
+  `NOTARY_SUBMISSION_ID` continues that submission without an upload. The ticket only fits the same signed code.
+  `app-release.yaml` passes it from the manual input `notary-submission-id`. Only a run on a `refs/tags/v*` ref
+  with a non-empty id signs, a branch with an id fails. An empty id keeps the ad hoc dry run.
   - The entitlements file is empty on purpose, its comment gives the reasons. Add a key only with a documented
     reason in that comment. Not verified: whether the tap path needs `com.apple.security.device.audio-input`
     under the hardened runtime. 0.1.0 already ran hardened without it.

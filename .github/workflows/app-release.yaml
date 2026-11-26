@@ -8,6 +8,10 @@ name: app-release
 # APPLE_NOTARY_ISSUER_ID, APPLE_NOTARY_KEY_P8_BASE64, and the variable APPLE_SIGNING_IDENTITY.
 # A release fails closed: an empty secret or variable stops the job, it never falls back to ad hoc.
 # A manual dry run references no signing secret and builds ad hoc, like the bundle job of checks.yaml.
+# One manual exception: a run started on a release tag (refs/tags/v*) with notary-submission-id set signs
+# like a release, continues that notary submission instead of uploading again and uploads to the release
+# of that tag. It only helps when the rebuilt app has the same signed code as the submitted one, else
+# stapling fails. A non-empty id on any other ref fails the run before a secret is read.
 # Each secret reaches only the step that needs it, through that step's env. The scripts print no
 # secret value. The certificate lives in a temporary keychain with a random password, the decoded
 # .p12 and .p8 files in RUNNER_TEMP folders only the runner user can read. The cleanup step removes
@@ -38,6 +42,13 @@ on:
         required: false
         default: ""
         type: string
+      notary-submission-id:
+        description: >-
+          Notary submission id (UUID) of an earlier run that timed out, on a release tag ref only.
+          It helps only when the app is the same signed code. Empty runs the dry run build.
+        required: false
+        default: ""
+        type: string
       allow-downgrade:
         description: Let a tag older than the tap's cask replace it
         required: false
@@ -58,8 +69,9 @@ jobs:
     # A manual run with a cask-tag only pushes the cask, see the homebrew job.
     if: github.event_name == 'release' || inputs.cask-tag == ''
     runs-on: macos-latest
-    # The notary wait is capped at 30 minutes, see bundle:notarize.
-    timeout-minutes: 60
+    # The notary polling is capped at 45 minutes (NOTARY_TIMEOUT), see scripts/notarize.sh. The other
+    # steps (setup, build, verify, zip twice, upload) get 30 minutes on top.
+    timeout-minutes: 75
     permissions:
       contents: write
     # The sha256 of the zip this job built and uploaded, for the homebrew job.
@@ -67,12 +79,33 @@ jobs:
       zip-sha256: ${{ steps.asset.outputs.sha256 }}
     env:
       # Every event value reaches a script through env, never inline in a `run:`.
-      # Empty on a dry run, where the version comes from git describe.
-      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
-      # Only a release signs, notarizes and sees the signing secrets. Decided by the event alone, so a
-      # missing secret fails the release instead of switching it to ad hoc.
-      SIGNED_RELEASE: ${{ github.event_name == 'release' && 'true' || 'false' }}
+      # Empty on a dry run, where the version comes from git describe. A manual resume run on a tag
+      # takes the tag from the ref, see SIGNED_RELEASE.
+      RELEASE_TAG: >-
+        ${{ github.event_name == 'release' && github.event.release.tag_name ||
+        (github.event_name == 'workflow_dispatch' && inputs.notary-submission-id != '' &&
+        startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
+      # Only a release signs, notarizes and sees the signing secrets. Decided by the event, and for a
+      # manual run by a non-empty notary-submission-id on a tag ref, so a missing secret fails the run
+      # instead of switching it to ad hoc. A branch never signs.
+      SIGNED_RELEASE: >-
+        ${{ (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' &&
+        inputs.notary-submission-id != '' && startsWith(github.ref, 'refs/tags/v'))) && 'true' || 'false' }}
+      # Empty unless a manual run sets it. Not a secret. Validated before use, see the first step.
+      NOTARY_SUBMISSION_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.notary-submission-id || '' }}
     steps:
+      # First step, before any secret is read. The id comes from env, never from a `run:` text.
+      - name: Check the notary submission id
+        if: env.NOTARY_SUBMISSION_ID != ''
+        run: |
+          set -euo pipefail
+          uuid='^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
+          [[ "${NOTARY_SUBMISSION_ID}" =~ ${uuid} ]] || { echo "notary-submission-id is not a UUID" >&2; exit 1; }
+          if [ "${SIGNED_RELEASE}" != true ]; then
+            echo "notary-submission-id needs a run on a release tag (refs/tags/v*), not ${GITHUB_REF}" >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
@@ -125,13 +158,14 @@ jobs:
           task bundle:zip
 
       # The notary log on a rejection holds the findings for the submitted files, no credential.
+      # NOTARY_SUBMISSION_ID comes from the job env: set, the zip is not uploaded again.
       - name: Notarize and staple
         if: env.SIGNED_RELEASE == 'true'
         env:
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
           APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
-          NOTARY_TIMEOUT: 30m
+          NOTARY_TIMEOUT: 45m
         run: |
           set +x
           set -euo pipefail
