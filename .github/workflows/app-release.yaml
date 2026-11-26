@@ -58,8 +58,9 @@ jobs:
     # A manual run with a cask-tag only pushes the cask, see the homebrew job.
     if: github.event_name == 'release' || inputs.cask-tag == ''
     runs-on: macos-latest
-    # The notary wait is capped at 30 minutes, see bundle:notarize.
-    timeout-minutes: 60
+    # The notary polling is capped at 45 minutes (NOTARY_TIMEOUT), see scripts/notarize.sh. The other
+    # steps (setup, build, verify, zip twice, upload) get 30 minutes on top.
+    timeout-minutes: 75
     permissions:
       contents: write
     # The sha256 of the zip this job built and uploaded, for the homebrew job.
@@ -131,7 +132,7 @@ jobs:
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
           APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
-          NOTARY_TIMEOUT: 30m
+          NOTARY_TIMEOUT: 45m
         run: |
           set +x
           set -euo pipefail
