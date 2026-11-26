@@ -3,7 +3,7 @@
     ".build/**",
     ".claude/worktrees/**",
     "**/CHANGELOG.md",
-    "CLAUDE.md"
+    "**/CLAUDE.md"
   ],
   "config": {
     // The findings tables are filled by hand, so their pipes cannot stay aligned.
