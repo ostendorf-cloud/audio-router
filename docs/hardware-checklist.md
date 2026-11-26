@@ -26,7 +26,7 @@ Measurements so far: `docs/prototype-findings.md`. This list never edits that fi
 ## Header
 
 - macOS version and build (`sw_vers`):
-- App version, the full release version such as `0.1.0-rc.2` (`CFBundleShortVersionString`, shown in the About view):
+- App version, the full release version such as `0.1.0-rc.2` (`ARFullVersion`, shown in the About view; Finder shows only the numeric `CFBundleShortVersionString`):
 - Build, kind and identity (release asset name and SHA-256, or the commit of a local build):
 - `audio-router-proto` commit (`git rev-parse --short HEAD`):
 - Date:

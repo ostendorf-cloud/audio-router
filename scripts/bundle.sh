@@ -48,10 +48,12 @@ if [ "${#version}" -gt 64 ] || [[ "${version}" == *--* ]] || [[ ! "${version}" =
   exit 1
 fi
 plist="$(<"${root}/Resources/Info.plist.template")"
-# CFBundleShortVersionString and CFBundleVersion both get the full version, so a pre-release such as
-# 0.1.0-rc.2 shows in full wherever the app version is shown. Apple documents CFBundleVersion as period
-# separated integers. Not verified: that Gatekeeper and notarization accept a suffix there.
-plist="${plist//@VERSION@/${version}}"
+# Apple allows only digits and periods in CFBundleShortVersionString and CFBundleVersion. Both get the
+# numeric core, so 0.1.0-rc.2 and 0.1.0 carry the same value there and the order of an rc below the
+# stable release is not expressed. The full version goes into the custom key ARFullVersion.
+core="${version%%[-+]*}"
+plist="${plist//@VERSION@/${core}}"
+plist="${plist//@FULL_VERSION@/${version}}"
 
 if [ "${dry_run}" = true ]; then
   printf '%s\n' "${plist}"

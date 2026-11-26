@@ -120,9 +120,10 @@ public enum ShellAbout {
     /// Text for a run without a bundle, for example `swift run`.
     public static let developmentVersion = "development build"
 
-    /// The `CFBundleShortVersionString` of the bundle, or the fallback text when it is missing or empty.
+    /// The `ARFullVersion` of the bundle, for example `0.1.0-rc.2`, or the fallback text when it is missing or
+    /// empty. The Apple version keys hold only the numeric core, so they are not used here.
     public static func version(info: [String: Any]?) -> String {
-        guard let value = info?["CFBundleShortVersionString"] as? String, !value.isEmpty else {
+        guard let value = info?["ARFullVersion"] as? String, !value.isEmpty else {
             return developmentVersion
         }
         return value

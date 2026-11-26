@@ -2,9 +2,8 @@
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
 #
-# Tests for the version mapping of bundle.sh, through --dry-run: a stable and a pre-release version
-# land in full in CFBundleShortVersionString and in CFBundleVersion, a leading v is dropped and a bad
-# version is refused. Builds nothing and calls no macOS tool.
+# Tests for the version mapping of bundle.sh, through --dry-run: both Apple keys get the numeric core,
+# ARFullVersion gets the full version, a leading v is dropped and a bad version is refused. Builds nothing and calls no macOS tool.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,14 +21,16 @@ value_of() {
 }
 
 check() {
-  local name="$1" given="$2" want="$3" plist short build
+  local name="$1" given="$2" want_core="$3" want_full="$4" plist short build full
   plist="$(VERSION="${given}" "${bundle}" --dry-run)"
   short="$(value_of "${plist}" CFBundleShortVersionString)"
   build="$(value_of "${plist}" CFBundleVersion)"
-  if [ "${short}" = "${want}" ] && [ "${build}" = "${want}" ]; then
+  full="$(value_of "${plist}" ARFullVersion)"
+  if [ "${short}" = "${want_core}" ] && [ "${build}" = "${want_core}" ] && [ "${full}" = "${want_full}" ] &&
+    [[ "${short}" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
     echo "PASS ${name}"
   else
-    fail "${name}: short '${short}', build '${build}', want '${want}'"
+    fail "${name}: short '${short}', build '${build}', full '${full}', want '${want_core}' and '${want_full}'"
   fi
 }
 
@@ -42,10 +43,10 @@ refuse() {
   fi
 }
 
-check "a stable version stays as it is" 1.2.3 1.2.3
-check "a release candidate keeps its suffix" 0.1.0-rc.2 0.1.0-rc.2
-check "a leading v is dropped" v0.1.0-rc.2 0.1.0-rc.2
-check "build metadata is kept" 1.2.3+build.5 1.2.3+build.5
+check "a stable version stays as it is" 1.2.3 1.2.3 1.2.3
+check "a release candidate keeps its suffix only in the full version" 0.1.0-rc.2 0.1.0 0.1.0-rc.2
+check "a leading v is dropped" v0.1.0-rc.2 0.1.0 0.1.0-rc.2
+check "build metadata stays out of the Apple keys" 1.2.3+build.5 1.2.3 1.2.3+build.5
 refuse "a version without a patch part is refused" 1.2
 refuse "a version with a leading zero is refused" 01.2.3
 

@@ -116,16 +116,21 @@ private let video = ShellSamples.video
 
 @Suite struct ShellAboutTests {
     @Test func usesTheBundleVersion() {
-        #expect(ShellAbout.version(info: ["CFBundleShortVersionString": "1.2.3"]) == "1.2.3")
+        #expect(ShellAbout.version(info: ["ARFullVersion": "1.2.3"]) == "1.2.3")
     }
 
     @Test func showsTheFullPreReleaseVersion() {
-        #expect(ShellAbout.version(info: ["CFBundleShortVersionString": "0.1.0-rc.2"]) == "0.1.0-rc.2")
+        let info: [String: Any] = ["CFBundleShortVersionString": "0.1.0", "ARFullVersion": "0.1.0-rc.2"]
+        #expect(ShellAbout.version(info: info) == "0.1.0-rc.2")
+    }
+
+    @Test func ignoresTheAppleVersionKeys() {
+        #expect(ShellAbout.version(info: ["CFBundleShortVersionString": "0.1.0"]) == ShellAbout.developmentVersion)
     }
 
     @Test func fallsBackWithoutABundleVersion() {
         #expect(ShellAbout.version(info: nil) == ShellAbout.developmentVersion)
         #expect(ShellAbout.version(info: [:]) == ShellAbout.developmentVersion)
-        #expect(ShellAbout.version(info: ["CFBundleShortVersionString": ""]) == ShellAbout.developmentVersion)
+        #expect(ShellAbout.version(info: ["ARFullVersion": ""]) == ShellAbout.developmentVersion)
     }
 }
