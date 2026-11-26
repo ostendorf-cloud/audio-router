@@ -47,12 +47,11 @@ if [ "${#version}" -gt 64 ] || [[ "${version}" == *--* ]] || [[ ! "${version}" =
   echo "invalid version '${version}', expected MAJOR.MINOR.PATCH[-suffix], no '--', at most 64 characters" >&2
   exit 1
 fi
-# CFBundleVersion is period separated integers, so it gets the numeric part only.
-bundle_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-
 plist="$(<"${root}/Resources/Info.plist.template")"
+# CFBundleShortVersionString and CFBundleVersion both get the full version, so a pre-release such as
+# 0.1.0-rc.2 shows in full wherever the app version is shown. Apple documents CFBundleVersion as period
+# separated integers. Not verified: that Gatekeeper and notarization accept a suffix there.
 plist="${plist//@VERSION@/${version}}"
-plist="${plist//@BUNDLE_VERSION@/${bundle_version}}"
 
 if [ "${dry_run}" = true ]; then
   printf '%s\n' "${plist}"

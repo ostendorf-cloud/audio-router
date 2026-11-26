@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright 2026 Simon Ostendorf -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- The build script fills in the two version values below. -->
+<!-- The build script replaces @VERSION@ in both version keys below with the full version. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -20,7 +20,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>@VERSION@</string>
 	<key>CFBundleVersion</key>
-	<string>@BUNDLE_VERSION@</string>
+	<string>@VERSION@</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.2</string>
 	<key>LSUIElement</key>

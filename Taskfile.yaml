@@ -81,6 +81,13 @@ tasks:
         [ "$(plutil -extract LSMinimumSystemVersion raw "${plist}")" = "14.2" ] || fail "LSMinimumSystemVersion is not 14.2"
         usage="$(plutil -extract NSAudioCaptureUsageDescription raw "${plist}")"
         [ -n "${usage}" ] || fail "NSAudioCaptureUsageDescription is empty"
+        # Both version keys carry the full version. RELEASE_TAG is set on a release run only.
+        short="$(plutil -extract CFBundleShortVersionString raw "${plist}")"
+        build="$(plutil -extract CFBundleVersion raw "${plist}")"
+        [ "${short}" = "${build}" ] || fail "CFBundleShortVersionString ${short} and CFBundleVersion ${build} differ"
+        if [ -n "${RELEASE_TAG:-}" ]; then
+          [ "${short}" = "${RELEASE_TAG#v}" ] || fail "plist version ${short} differs from release tag ${RELEASE_TAG}"
+        fi
         exe="$(plutil -extract CFBundleExecutable raw "${plist}")"
         [ -f "${app}/Contents/Resources/AppIcon.icns" ] || fail "AppIcon.icns is missing"
         for state in off running warning error; do
@@ -113,6 +120,7 @@ tasks:
       - scripts/verify-signature_test.sh
       - scripts/signing-keychain_test.sh
       - scripts/notarize_test.sh
+      - scripts/bundle_test.sh
 
   # CI only: not part of "check", because it needs Homebrew and taps a scratch tap named
   # audio-router-ci/audit while it runs. The hash is a placeholder: without --online the audit
