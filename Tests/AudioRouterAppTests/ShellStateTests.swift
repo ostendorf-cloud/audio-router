@@ -119,6 +119,10 @@ private let video = ShellSamples.video
         #expect(ShellAbout.version(info: ["CFBundleShortVersionString": "1.2.3"]) == "1.2.3")
     }
 
+    @Test func showsTheFullPreReleaseVersion() {
+        #expect(ShellAbout.version(info: ["CFBundleShortVersionString": "0.1.0-rc.2"]) == "0.1.0-rc.2")
+    }
+
     @Test func fallsBackWithoutABundleVersion() {
         #expect(ShellAbout.version(info: nil) == ShellAbout.developmentVersion)
         #expect(ShellAbout.version(info: [:]) == ShellAbout.developmentVersion)
