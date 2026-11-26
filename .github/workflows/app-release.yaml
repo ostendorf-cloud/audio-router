@@ -153,9 +153,9 @@ jobs:
             VERSION="${RELEASE_TAG#v}"
             export VERSION
           fi
-          task bundle
-          task bundle:verify
-          task bundle:zip
+          task --trusted-hosts github.com bundle
+          task --trusted-hosts github.com bundle:verify
+          task --trusted-hosts github.com bundle:zip
 
       # The notary log on a rejection holds the findings for the submitted files, no credential.
       # NOTARY_SUBMISSION_ID comes from the job env: set, the zip is not uploaded again.
@@ -169,7 +169,7 @@ jobs:
         run: |
           set +x
           set -euo pipefail
-          task bundle:notarize
+          task --trusted-hosts github.com bundle:notarize
 
       # The submitted zip carries no ticket. The final zip is made from the stapled app, and bundle:zip
       # verifies its unzipped copy against Gatekeeper and the ticket too.
@@ -180,8 +180,8 @@ jobs:
           VERIFY_SIGNATURE: notarized
         run: |
           set -euo pipefail
-          task bundle:verify
-          task bundle:zip
+          task --trusted-hosts github.com bundle:verify
+          task --trusted-hosts github.com bundle:zip
 
       # Runs on every outcome, before any upload. A dry run has no keychain, the script then only
       # removes leftover key folders, of which there are none.
