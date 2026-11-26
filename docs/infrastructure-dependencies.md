@@ -26,10 +26,10 @@ This repository was created by hand. Until the infrastructure repository covers 
   The workflow reads `APPLE_TEAM_ID` nowhere: the identity carries the team id.
 - The labels `dependencies` and `release: pending`, `release: tagged`, `release: alpha`, `release: beta`,
   `release: rc`.
+- The security app is installed, its `DCO` check ran.
 
 ## Not verified
 
 - That the release and dependencies GitHub Apps are installed on this repository.
 - That the release app is installed on `ostendorf-cloud/homebrew-tap`.
   gitcd's `homebrew` job mints its tap token from the same app.
-- The security app is installed, its `DCO` check ran.

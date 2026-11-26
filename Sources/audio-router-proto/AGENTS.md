@@ -21,6 +21,10 @@ The command line diagnostic tool. It is not part of a release. Flags come from `
 - `--meter` prints peak and RMS in dBFS of the tap and the output to stdout once a second.
   `ChannelMapper.measure` runs next to `render` in the IO proc with the same real time contract.
 
+## Signals
+
+- `SIGTSTP` is ignored on purpose, a suspended process cannot tear down. The code sits in `AudioRouterProto.swift`.
+
 ## Info.plist
 
 - The usage string for the system audio capture permission lives in `Info.plist` next to these sources under

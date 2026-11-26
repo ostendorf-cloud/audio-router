@@ -14,5 +14,5 @@
 - The stream id diff (`createAggregate`, then `ChannelMapper.tapBufferByStreamDiff`) names the tap buffer when it can.
   When it fails and the device inputs have the tap shape, the layout cannot prove the order.
   The route then needs `--tap-buffer`. Do not widen the rule.
-- `SIGTSTP` is ignored on purpose, a suspended process cannot tear down.
+- `Tests/RouterCoreAudioTests` runs the real time code on in memory buffer lists.
 - API names come from the SDK headers, not from memory, see the root file.

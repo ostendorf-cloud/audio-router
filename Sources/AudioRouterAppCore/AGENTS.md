@@ -1,5 +1,7 @@
 # AudioRouterAppCore
 
+`Tests/AudioRouterAppTests` drives this target with a fake engine.
+
 ## Route editor (`Editor*.swift` here and in `AudioRouterApp`)
 
 - `EditorViewModel` holds the logic. It sits behind `DeviceProviding`, `AppProviding` and `EditorRouteStoring`.

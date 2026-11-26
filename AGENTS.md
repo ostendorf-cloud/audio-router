@@ -26,7 +26,8 @@ The global baseline already applies here and is not repeated below.
 - `Sources/audio-router-proto` is the command line diagnostic tool, not part of a release.
   It wires signals and the real backend, nothing else.
   Flags, `Info.plist` and the real Mac run: `Sources/audio-router-proto/AGENTS.md`.
-- `scripts/` holds the bundle, signing, cask and lint scripts, each with a `_test.sh`.
+- `scripts/` holds the bundle, branding, signing, cask and lint scripts. Most have a `_test.sh`, `bundle.sh` and
+  `render-branding.sh` do not.
   Signing, notarization, cask and macro lint: `scripts/AGENTS.md`.
 - `Resources/` holds the entitlements and the app bundle inputs.
   `Resources/Branding` holds the icon sources and the committed PNGs: `Resources/Branding/AGENTS.md`.
@@ -43,8 +44,10 @@ swift test
 task check
 ```
 
-`task check` runs format, license, RouterCore import, SwiftUI macro, markdown, YAML and workflow lint
+`task check` runs format, license, RouterCore import, SwiftUI macro, AGENTS.md, markdown, YAML and workflow lint
 and the cask and signing script tests. Then it builds and tests.
+`task lint:agents-md` comes from a shared include and checks the line limits of every `AGENTS.md`.
+The include loads from github.com on a fresh cache, so the first run needs the network.
 `task bundle:verify` and `task lint:cask-audit` are CI only and not part of `check`.
 `task lint:cask-audit` (job `cask-audit`) needs Homebrew and taps a scratch tap `audio-router-ci/audit`.
 `swift build` builds all five targets.

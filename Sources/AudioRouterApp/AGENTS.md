@@ -1,5 +1,7 @@
 # AudioRouterApp
 
+The app holds `MenuBarExtra`, the menu, the `Settings` scene and the app delegate (activation policy, quit handshake).
+
 ## Login item
 
 - The Settings toggle registers `SMAppService.mainApp` through the `LoginItemService` protocol.

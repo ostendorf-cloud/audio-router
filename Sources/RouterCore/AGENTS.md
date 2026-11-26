@@ -1,5 +1,14 @@
 # RouterCore
 
+## Layout
+
+- `Protocols.swift` defines `AudioDeviceProviding`, `ProcessProviding` and `AudioRoutingBackend`.
+- `BundleGrouping`, `RoutePlanner`, `ArgumentParser`, `ChannelMapper`, `RouteSession` and `Formatting` are the logic.
+  Unit tests cover all of them with fakes.
+- `Engine*.swift` is the route engine (`RouteEngine`), see below.
+  `EngineTests`, `EngineRecoveryTests` and `EngineFakes` drive it with scripted events and an injected clock.
+- `Tests/RouterCoreTests` has the unit tests (Swift Testing) and the fakes.
+
 ## Process monitoring
 
 - `ProcessMonitoring` (`ProcessesMonitoring.swift`) reports app start, helper start, helper stop and app quit.
