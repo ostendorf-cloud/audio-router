@@ -31,7 +31,7 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        version="$(plutil -extract CFBundleShortVersionString raw dist/audio-router.app/Contents/Info.plist)"
+        version="$(plutil -extract ARFullVersion raw dist/audio-router.app/Contents/Info.plist)"
         scripts/notarize.sh "dist/audio-router-${version}-arm64.zip" dist/audio-router.app
 
   bundle:zip:
@@ -41,7 +41,7 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        version="$(plutil -extract CFBundleShortVersionString raw dist/audio-router.app/Contents/Info.plist)"
+        version="$(plutil -extract ARFullVersion raw dist/audio-router.app/Contents/Info.plist)"
         [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || { echo "invalid version ${version}" >&2; exit 1; }
         zip="dist/audio-router-${version}-arm64.zip"
         rm -f "${zip}"
@@ -81,6 +81,17 @@ tasks:
         [ "$(plutil -extract LSMinimumSystemVersion raw "${plist}")" = "14.2" ] || fail "LSMinimumSystemVersion is not 14.2"
         usage="$(plutil -extract NSAudioCaptureUsageDescription raw "${plist}")"
         [ -n "${usage}" ] || fail "NSAudioCaptureUsageDescription is empty"
+        # Apple allows only digits and periods in both Apple keys. ARFullVersion carries the full version.
+        # RELEASE_TAG is set on a release run only.
+        short="$(plutil -extract CFBundleShortVersionString raw "${plist}")"
+        build="$(plutil -extract CFBundleVersion raw "${plist}")"
+        full="$(plutil -extract ARFullVersion raw "${plist}")"
+        numeric='^[0-9]+(\.[0-9]+){0,2}$'
+        [[ "${short}" =~ ${numeric} ]] || fail "CFBundleShortVersionString ${short} is not numeric"
+        [[ "${build}" =~ ${numeric} ]] || fail "CFBundleVersion ${build} is not numeric"
+        if [ -n "${RELEASE_TAG:-}" ]; then
+          [ "${full}" = "${RELEASE_TAG#v}" ] || fail "ARFullVersion ${full} differs from release tag ${RELEASE_TAG}"
+        fi
         exe="$(plutil -extract CFBundleExecutable raw "${plist}")"
         [ -f "${app}/Contents/Resources/AppIcon.icns" ] || fail "AppIcon.icns is missing"
         for state in off running warning error; do
@@ -113,6 +124,7 @@ tasks:
       - scripts/verify-signature_test.sh
       - scripts/signing-keychain_test.sh
       - scripts/notarize_test.sh
+      - scripts/bundle_test.sh
 
   # CI only: not part of "check", because it needs Homebrew and taps a scratch tap named
   # audio-router-ci/audit while it runs. The hash is a placeholder: without --online the audit

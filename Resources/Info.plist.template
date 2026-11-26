@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright 2026 Simon Ostendorf -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- The build script fills in the two version values below. -->
+<!-- The build script replaces @VERSION@ with the numeric core, for example 0.1.0, in both Apple version keys. -->
+<!-- Apple allows only digits and periods there. @FULL_VERSION@ becomes the full version, for example 0.1.0-rc.2. -->
+<!-- ARFullVersion is a custom key. The About window shows it, and task bundle:verify checks it against the tag. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -20,7 +22,9 @@
 	<key>CFBundleShortVersionString</key>
 	<string>@VERSION@</string>
 	<key>CFBundleVersion</key>
-	<string>@BUNDLE_VERSION@</string>
+	<string>@VERSION@</string>
+	<key>ARFullVersion</key>
+	<string>@FULL_VERSION@</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.2</string>
 	<key>LSUIElement</key>
