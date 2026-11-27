@@ -1,8 +1,9 @@
 # Hardware checklist on a macOS runner
 
 Issue 60. This page says which steps of `docs/hardware-checklist.md` a GitHub Actions macOS runner can run.
-The evidence is one run of the throwaway workflow `.github/workflows/spike-runner.yaml`.
-The workflow lives on the branch `test/60-runner-spike` and never goes to `main`.
+The evidence is one run of a throwaway workflow, `spike-runner.yaml`, which is not part of the repository.
+The workflow never went to `main`. Its last version is in commit `602335b` on the branch `test/60-runner-spike`.
+The run log of run 45968366431 is the only source of the results below.
 
 ## Method and limits
 
@@ -180,7 +181,15 @@ Not shown or failed:
 
 ## Recommended follow up
 
-Not filed. The owner decides.
+Not filed. The owner decides. Each bullet is ready to become an issue.
+
+- Automate in CI: the signature and notarization checks of the release asset (machine part of step 1),
+  if `task bundle:verify` does not already cover `spctl` and `stapler`.
+  Optionally a device list and default output smoke check, after the BlackHole licence is cleared.
+- Keep as hardware checklist: every step marked `no`, and the user facing half of steps 1, 8d and 8e.
+  Nothing else moves to CI on the evidence of this spike.
+- Second spike on the `AudioDeviceStart` block: the route start blocked about 3 minutes, then failed with
+  `OSStatus 268451843`, a route error. Only worth it if the owner wants a tap in CI. Details below.
 
 ### Automate in CI
 
