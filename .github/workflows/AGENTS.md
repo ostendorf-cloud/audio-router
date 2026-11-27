@@ -21,6 +21,9 @@
   `VERIFY_SIGNATURE=notarized scripts/verify-signature.sh` on the unzipped app.
   It runs on release events and on the notary resume run on a tag.
 - Its `homebrew` job pushes the cask to the tap with a token of the release app scoped to `homebrew-tap`.
+  The job order is `bundle`, `verify-asset`, `homebrew`. On a release event `homebrew` starts only after
+  `verify-asset` succeeded. A manual `cask-tag` run on the default branch skips the first two and still starts it.
+  The notary resume run on a tag does not start `homebrew`.
 - The cask strips no quarantine attribute. A notarized release should open without a Gatekeeper warning.
   Not verified until the first notarized release ran.
 - `lint:license` in the Taskfile and `find-commands` in `checks.yaml` are kept in step by hand.
