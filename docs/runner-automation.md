@@ -110,8 +110,9 @@ The run log of run 45968366431 is the only source of the results below.
 
 Cause of the missing meter line, as far as the log shows it:
 
-- Route error. The route start blocked inside `AudioDeviceStart` for about 3 minutes
-  and then failed with `OSStatus 268451843`.
+- Route error. The route start blocked for about 3 minutes and then failed with `OSStatus 268451843`.
+  The error text names `AudioDeviceStart`. That the time was spent inside that call is not shown.
+  Round 4 below puts a hang in `AudioDeviceCreateIOProcID`, an earlier call.
 - It is not a denied permission that the log shows. The log has no permission error and no permission warning.
   The route never returned from the start, so the tool had no chance to print the signal or permission warnings.
 - It is not shown as a silent tap either. The route never reached the point where samples would arrive.
@@ -177,7 +178,7 @@ Shown by the log:
 Not shown or failed:
 
 - Play audio from QuickTime Player. The Apple Event to play timed out (`-1712`).
-- Tap an app and read a level. The route start blocked and failed in `AudioDeviceStart`.
+- Tap an app and read a level. The route start blocked and failed, see the second spike and round 4.
 - Anything with a real device: 32 channels, a USB cable, AirPods, speakers.
 - Anything that needs a person: a prompt, a dialog, a menu click, a listening test.
 
@@ -197,12 +198,12 @@ Filed as issues 84, 85 and 86. The owner triages them.
 ## Second spike, issue 86: the route start hangs in all four variants
 
 Result so far is negative. A route with a tap does not start on the hosted runner, in every variant tried.
-The cause is not found.
+The cause is not found. Round 4 below narrows the hang to one call.
 
 ### Second spike method and limits
 
 - Run: GitHub Actions run 46010697518, 2026-11-27, workflow `spike-audiodevicestart.yaml` on the branch
-  `test/86-runner-spike-2` (commits `8ec1cb2` and `096ce78`). The workflow is not part of `main`.
+  `test/86-runner-spike-2` (commits `4574e33` and `3c83f94`). The workflow is not part of `main`.
 - Runner: `macos-latest`, image `macos-26-arm64`, macOS 26.7.2 (build 25G332), SIP disabled, console user `runner`.
 - Four jobs, one runner each. Every quote below is a line of the saved job log of that run. Log times are UTC.
 - Source: a small ad hoc signed app, bundle id `cloud.ostendorf.spike-tone`, plays a 1 kHz sine at half scale
@@ -233,6 +234,7 @@ The other two change one thing each.
 - The route prints nothing before the `TERM`. Then the tool prints
   `stop requested while the route starts. The start cannot be cancelled ...`. That line is printed only while the
   tool is inside `RouteSession.start`. So the tool was in its start in all four jobs at the time of the `TERM`.
+  The start is a sequence of Core Audio calls. This log does not say which one blocks. Round 4 below does.
 - The `TERM` does not end the tool, as the notice says. Each job needs `KILL`: `Killed: 9`, after
   `SPIKE[route] still alive after TERM, sending KILL`.
 - No `OSStatus` came back within 45 s. The first spike's `268451843` came after about 3 minutes.
@@ -270,8 +272,9 @@ The other two change one thing each.
 ### What they do not answer
 
 - Which call blocks. The log has no stack and no step markers inside the tool.
-  The first spike named `AudioDeviceStart`. For this run that is inferred from the order in
-  `CoreAudioRoutingBackend.swift`. It is not shown.
+  The first spike named `AudioDeviceStart` from the error text. For this run that was inferred from the order in
+  `CoreAudioRoutingBackend.swift`. It was not shown. Round 4 below shows the blocking call in a probe:
+  `AudioDeviceCreateIOProcID`, not `AudioDeviceStart`.
 - Inference, not shown: the tap and the aggregate device exist while the start hangs.
   In every job `coreaudiod` logs `HALS_MultiTap::unregister_meta_device`,
   `HALS_Device::_Deactivate: deactivating device <id>: <uuid>` and `HALS_MultiTap_Engine::UnregisterIOContext`
@@ -293,8 +296,9 @@ The other two change one thing each.
 - Candidates left: a pending permission decision with nobody to answer a prompt, a tap start that needs a real
   audio clock on the destination or a session the runner lacks, and a defect in the tool.
   None of them is tested.
-- Two probes are written and have not run. They are the throwaway workflow `spike-tap-steps.yaml` and the files
-  under `.github/spike/`. They never go to `main`, like the first workflow.
+- Two probes were written after this run and ran in round 4 below. They are the throwaway workflow
+  `spike-tap-steps.yaml` and the files under `.github/spike/`, in commit `87026d5`. They never went to `main`,
+  like the first workflow.
   - `tap-steps.swift` makes the Core Audio calls of the route start one by one in the default device stream mode,
     with a time stamp before and after each call. A watchdog ends the process when one call runs for 55 s.
     The mode `control` starts a plain IO proc on the `Null Audio Device`, with no tap and no aggregate.
@@ -311,3 +315,57 @@ The other two change one thing each.
   - `tap-steps-lib.sh` holds the shell helpers. `tone-Info.plist` is the plist of the tone bundle.
   - The launch path is not tested: both programs start from the runner shell, not through Launch Services.
     Which process the permission check attributes the request to is not verified.
+
+## Round 4, issue 86: the hang sits in AudioDeviceCreateIOProcID
+
+Result is negative. The probes make the route start calls one by one. The call that does not return is
+`AudioDeviceCreateIOProcID` on the aggregate device that holds the tap.
+
+### Round 4 method and limits
+
+- Run: GitHub Actions run 46016546432, 2026-11-27, workflow `spike-tap-steps.yaml` on the branch
+  `test/86-runner-spike-2`, commit `87026d5` (it was `cad0ec9` before the rebase onto `main`).
+  The workflow is not part of `main`.
+- Runner: image `macos-26-arm64` version `20261117.0516.1`, macOS 26.7.2.
+- Source: the tone app of the second spike. The destination of the aggregate device is `Null Audio Device`.
+- Two jobs, one runner each. Both write a time stamp before and after every Core Audio call.
+  A watchdog ends the process when one call runs for 55 s.
+- One run only. A second run could differ.
+
+| Probe | What ran | Result |
+| --- | --- | --- |
+| A, control | A plain IO proc on `Null Audio Device`, no tap, no aggregate | Started, 438 IO callbacks in 5 s, stop and destroy returned |
+| A, tap | The route start calls one by one, tap on the tone process, destination `Null Audio Device` | `AudioDeviceCreateIOProcID` did not return within 55 s, the watchdog ended the process |
+| B, pass 1 | The same steps from an app bundle with its own bundle id, no TCC row | The same hang at `AudioDeviceCreateIOProcID` |
+| B, pass 2 | The same, after a `kTCCServiceAudioCapture` row for the bundle id was written and read back | The same hang at `AudioDeviceCreateIOProcID` |
+
+### Round 4 shown by the log
+
+Steps that returned before the hang, in both probes:
+
+- `AudioHardwareCreateProcessTap` ok after 14 to 24 ms.
+- `AudioHardwareCreateAggregateDevice` ok after 26 to 29 ms.
+- `AudioObjectSetPropertyData` of the tap list ok. The sub tap is readable.
+- The input streams of the aggregate device appear. Probe B lists `[112, 114]`.
+
+### What round 4 changes
+
+- Earlier notes put the hang in `RouteSession.start`, and the first spike named `AudioDeviceStart`.
+  The blocking call is `AudioDeviceCreateIOProcID` on the aggregate device that holds the tap.
+  The tap and the aggregate device are created. The IO proc is not.
+- A missing TCC row for audio capture does not explain the hang. Writing the row changes nothing.
+- A plain IO proc on a device without a tap works on the same runner.
+
+### Round 4 not verified
+
+- Whether the call blocks in `coreaudiod` or in the client library.
+- Whether the microphone request that `tccd` logged for the tap-steps process (`kTCCServiceMicrophone`, preflight)
+  is related. The log was not analysed further.
+- Whether the same hang happens when the tool starts through Launch Services, see the open items of the second spike.
+
+### Conclusion
+
+A hosted runner did not start a process tap IO proc in any round.
+The spike closes with a negative result.
+The hardware checklist, `docs/hardware-checklist.md`, stays a manual step of the owner.
+Issue 85 keeps every step marked `no` above.
