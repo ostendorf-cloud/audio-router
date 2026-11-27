@@ -226,6 +226,42 @@ jobs:
             dist/${{ steps.asset.outputs.zip }}.sha256
           if-no-files-found: error
 
+  # Checks the asset a user downloads, not the app the bundle job built: it downloads the zip and the
+  # .sha256 file from the published release, checks the checksum and runs scripts/verify-signature.sh
+  # in notarized mode on the unzipped app (codesign, runtime, entitlements, Developer ID chain,
+  # timestamp, spctl, stapler validate). Release events only: a dry run publishes no asset.
+  # It reads the public release with the workflow token and uses no signing secret.
+  verify-asset:
+    needs: bundle
+    if: github.event_name == 'release' && needs.bundle.result == 'success'
+    runs-on: macos-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Download the published asset and verify it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+          SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          VERIFY_SIGNATURE: notarized
+        run: |
+          set -euo pipefail
+          [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "unexpected tag: ${TAG}" >&2; exit 1; }
+          work="$(mktemp -d "${RUNNER_TEMP}/asset.XXXXXXXX")"
+          zip="audio-router-${TAG#v}-arm64.zip"
+          gh release download "${TAG}" --dir "${work}" --pattern "${zip}" --pattern "${zip}.sha256"
+          ls -l "${work}"
+          (cd "${work}" && shasum -a 256 -c "${zip}.sha256")
+          ditto -x -k "${work}/${zip}" "${work}/unzipped"
+          scripts/verify-signature.sh "${work}/unzipped/audio-router.app"
+
   # A manual run with cask-tag pushes from the default branch only. On another branch the bundle
   # and homebrew jobs both skip, so this job fails the run instead of leaving it green.
   cask-tag-branch:

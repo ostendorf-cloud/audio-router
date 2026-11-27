@@ -74,6 +74,17 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 - Ownership: machine part could run in CI (issue 84: checksum, `codesign`, `spctl`, `stapler` on the asset).
   The owner keeps the quarantine flag from a browser download, the Gatekeeper dialog and the menu bar look.
   See the step table in [`docs/runner-automation.md`](runner-automation.md).
+- CI proved (job `verify-asset` of `app-release.yaml`, issue 84): the job downloads the published zip and
+  `.sha256` file and runs `shasum -a 256 -c`. It unzips with `ditto` and runs
+  `VERIFY_SIGNATURE=notarized scripts/verify-signature.sh` on the app. That covers `codesign --verify --deep
+  --strict`, the hardened runtime flag, the entitlements, the Developer ID chain and the leaf identity, the
+  timestamp, `spctl` with `source=Notarized Developer ID` and `stapler validate`.
+  A green `verify-asset` job on the release run replaces the shell commands of the Do list for the checks.
+  Read its log for the `spctl` text and keep the run link in Notes.
+- The owner still checks by eye: the browser download with the quarantine flag (CI downloads with `gh`, which
+  sets none), the Finder unzip, the double click and the absence of an "Apple could not verify" warning, the
+  menu bar symbol with Light and Dark, the missing Dock icon, and the Quit item.
+  Not covered by CI: `bundle:verify` checks of the Info.plist and the bundle contents run on the built app only.
 
 - Do: download the zip and the `.sha256` file in a browser, so the quarantine flag is set.
   Put both in one folder and run:
