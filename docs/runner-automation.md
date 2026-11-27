@@ -11,7 +11,8 @@ The run log of run 45968366431 is the only source of the results below.
   Every probe step has `continue-on-error`, so a green run says nothing about the probes.
 - Runner: workflow label `macos-latest` (as in `app-release.yaml`). Log: image `macos-26-arm64`,
   version `20261117.0516.1`, macOS 26.7.2 (build 25G332), arm64.
-- Every quote below is a line of the run log. A claim without a quote is marked as unverified.
+- Every quote below is a line of the log of run 45968366431, read with `gh run view --log`.
+  A claim without a quote is marked as unverified.
 - One run only. A second run could differ, for example in the image version.
 - The checklist targets macOS 27 and the X32. The runner is macOS 26 with virtual audio devices only.
   A pass on the runner would not replace the owner's run on the X32.
@@ -28,7 +29,7 @@ The run log of run 45968366431 is the only source of the results below.
 | Q1 install a virtual device | yes | `SPIKE[q1] RESULT: yes, the virtual device is listed` |
 | Q4 switch the default output | yes | `SPIKE[q4] RESULT: yes, the default output was switched by a script` |
 | Q2 grant the capture permission | inconclusive | a row was written, Q3 got no samples |
-| Q3 play a tone and tap it | no | `SPIKE[q3] RESULT: no meter line, the tap delivered nothing or the route failed, see the route log` |
+| Q3 play a tone and tap it | inconclusive | `SPIKE[q3] RESULT: no meter line, the tap delivered nothing or the route failed, see the route log`. The route start failed, and the tone had ended before it. |
 
 ### Q5 Devices before any install
 
@@ -114,8 +115,9 @@ Cause of the missing meter line, as far as the log shows it:
 - It is not a denied permission that the log shows. The log has no permission error and no permission warning.
   The route never returned from the start, so the tool had no chance to print the signal or permission warnings.
 - It is not shown as a silent tap either. The route never reached the point where samples would arrive.
-- The source never played. QuickTime Player reported `0 playing` after the timed out Apple Event.
-  So there was nothing to tap even if the route had started.
+- The source never played through QuickTime Player, which reported `0 playing` after the timed out Apple Event.
+  The `afplay` tone was a 60 second sine started before 08:48:49, so it had ended before the route start at 08:50:57.
+  So there was nothing to tap even if the route had started. This is why Q3 is inconclusive for the tap.
 - Why `AudioDeviceStart` blocked and then failed is unverified. The log does not say.
   Open candidates, none tested:
   - The default output was `BlackHole 2ch` (Q4).
@@ -130,11 +132,11 @@ Cause of the missing meter line, as far as the log shows it:
 `Runner can do it`: `yes` means a CI job could run the step and decide pass or fail.
 `partly` means a part could run and the rest needs a person or a real device.
 `no` means the step stays with the owner.
-No step is `yes`. Rows that need a tap stay `no`, because no tap worked on the runner.
+No step is `yes`. Rows that need a tap stay `no`, because the runner gave no tap result: Q3 is inconclusive.
 
 | Step | Runner can do it | Why | Evidence |
 | --- | --- | --- | --- |
-| 1 First open of the downloaded app | partly | Checksum, `codesign`, `spctl` and `stapler` can run on the asset. The quarantine flag from a browser download, the Gatekeeper dialog and the menu bar look need a person. | Not probed. `app-release.yaml` already runs `task bundle:verify`. Unverified that it covers the same checks. |
+| 1 First open of the downloaded app | partly | Checksum, `codesign`, `spctl` and `stapler` can run on the asset. The quarantine flag from a browser download, the Gatekeeper dialog and the menu bar look need a person. | Not probed. `scripts/verify-signature.sh` runs `spctl` and `stapler validate` in `notarized` mode (lines 82 and 85), but on the built app, not on the published asset. |
 | 2 Permission prompt for the app | no | The prompt is the test. A written TCC row would skip it. | Q2: `write ok`. No prompt was seen either way. |
 | 3 Permission denial in the app | no | Needs a denied state and a read of the error display. | Q2 shows a writable database, not what a denial looks like. |
 | 4 Permission flow of the tool | no | Tests the prompt and the name of the terminal app. | Q2: the client the check uses is unverified. |
@@ -146,7 +148,7 @@ No step is `yes`. Rows that need a tap stay `no`, because no tap worked on the r
 | 8b Replug after 8a | no | Follows 8a. | Not probed. |
 | 8c Flap within one second | no | Physical timing. | Not probed. |
 | 8d Default moves to AirPods | partly | The switch works from a script. Whether the app is audible on the new default needs audio from an app and a listener. | Q4: `default after: BlackHole 2ch`. Q3: no app played. |
-| 8e Default returns to the X32 | partly | Same as 8d. The X32 does not exist on the runner. | Q4, Q5. |
+| 8e Default returns to the X32 | no | The X32 does not exist on the runner, so the rule of 8f applies. | Q4, Q5. |
 | 8f Default moves to the speakers | no | The runner has no speakers. Its `Speakers` output is virtual. | Q5: `Output Source: Speakers` on `Apple Virtual Sound Device`. |
 | 9 Sample rate change on the X32 | no | The X32 changes its own rate. | Not probed. |
 | 10 App quit and start | no | Needs a playing app and a working route. | Q3: `0 playing`, route start failed. |
@@ -183,29 +185,14 @@ Not shown or failed:
 
 Filed as issues 84, 85 and 86. The owner triages them.
 
-- Issue 84, automate in CI: the signature and notarization checks of the release asset (machine part of step 1),
-  if `task bundle:verify` does not already cover `spctl` and `stapler`.
-  Optionally a device list and default output smoke check, after the BlackHole licence is cleared.
-- Issue 85, keep as hardware checklist: every step marked `no`, and the user facing half of steps 1, 8d and 8e.
-  Nothing else moves to CI on the evidence of this spike.
+- Issue 84, automate in CI: the signature and notarization checks of the release asset, the machine part of step 1.
+  `scripts/verify-signature.sh` already runs `spctl` and `stapler validate` on the built app, so the gap is the
+  published asset.
+- Issue 85, keep as hardware checklist: every step marked `no`, and the user facing half of steps 1, 8d and 8e:
+  dialogs, listening, the real X32 and AirPods.
+  Apart from the machine part of step 1, nothing moves to CI on the evidence of this spike.
 - Issue 86, second spike on the `AudioDeviceStart` block: the route start blocked about 3 minutes, then failed with
-  `OSStatus 268451843`, a route error. Only worth it if the owner wants a tap in CI. Details below.
-
-### Automate in CI
-
-- Nothing from the checklist moves into CI on the evidence of this spike.
-- Signature and notarization checks of the release asset, the machine part of step 1.
-  `app-release.yaml` runs `task bundle:verify`. Check first whether it already covers `spctl` and `stapler`.
-  Unverified.
-- Device list and default output switch as a smoke check of the tooling only.
-  It proves that the scripts run, not that routing works.
-  Only worth it after BlackHole is cleared for use in CI.
-
-### Keep as hardware checklist
-
-- All steps marked `no` in the table.
-- The user facing half of steps 1, 8d and 8e: dialogs, listening, the real X32 and AirPods.
-- Everything with a real device, a cable, a reboot, a login or a long run.
+  `OSStatus 268451843`, whose meaning is unverified. Only worth it if the owner wants a tap in CI. Details below.
 
 ### Second spike, only if the owner wants a tap in CI
 
