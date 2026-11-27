@@ -227,9 +227,11 @@ jobs:
           if-no-files-found: error
 
   # Checks the asset a user downloads, not the app the bundle job built: it downloads the zip and the
-  # .sha256 file from the published release, checks the checksum and runs scripts/verify-signature.sh
+  # .sha256 file from the published release, checks the checksum, compares the hash with the one the
+  # bundle job recorded and runs scripts/verify-signature.sh
   # in notarized mode on the unzipped app (codesign, runtime, entitlements, Developer ID chain,
-  # timestamp, spctl, stapler validate). Release events only: a dry run publishes no asset.
+  # timestamp, spctl, stapler validate). Release events only: a dry run publishes no asset, and a
+  # manual resume run (workflow_dispatch with cask-tag) skips the bundle job and so this job.
   # It reads the public release with the workflow token and uses no signing secret.
   verify-asset:
     needs: bundle
@@ -250,6 +252,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name }}
           SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          BUNDLE_ZIP_SHA256: ${{ needs.bundle.outputs.zip-sha256 }}
           VERIFY_SIGNATURE: notarized
         run: |
           set -euo pipefail
@@ -259,6 +262,13 @@ jobs:
           gh release download "${TAG}" --dir "${work}" --pattern "${zip}" --pattern "${zip}.sha256"
           ls -l "${work}"
           (cd "${work}" && shasum -a 256 -c "${zip}.sha256")
+          [[ -n "${BUNDLE_ZIP_SHA256}" ]] || { echo "the bundle job recorded no zip hash" >&2; exit 1; }
+          actual="$(shasum -a 256 "${work}/${zip}")"
+          actual="${actual%% *}"
+          if [[ "${actual}" != "${BUNDLE_ZIP_SHA256}" ]]; then
+            echo "hash mismatch: downloaded ${zip} is ${actual}, the bundle job recorded ${BUNDLE_ZIP_SHA256}" >&2
+            exit 1
+          fi
           ditto -x -k "${work}/${zip}" "${work}/unzipped"
           scripts/verify-signature.sh "${work}/unzipped/audio-router.app"
 

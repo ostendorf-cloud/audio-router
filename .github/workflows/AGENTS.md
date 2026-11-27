@@ -16,7 +16,8 @@
 - `app-release.yaml` signs with the Developer ID, notarizes, staples and attaches the arm64 zip to a published
   release. It runs `task bundle`, `task bundle:verify`, `task bundle:zip`, `task bundle:notarize`, then
   `task bundle:verify` and `task bundle:zip` again on the stapled app. A missing secret fails the release.
-- Its `verify-asset` job downloads the published zip and `.sha256`, checks the hash and runs
+- Its `verify-asset` job downloads the published zip and `.sha256`, checks the hash, compares it
+  with the hash the `bundle` job recorded and runs
   `VERIFY_SIGNATURE=notarized scripts/verify-signature.sh` on the unzipped app. Release events only.
 - Its `homebrew` job pushes the cask to the tap with a token of the release app scoped to `homebrew-tap`.
 - The cask strips no quarantine attribute. A notarized release should open without a Gatekeeper warning.
