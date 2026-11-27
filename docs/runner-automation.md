@@ -205,6 +205,7 @@ The cause is not found. Round 4 below narrows the hang to one call.
 - Run: GitHub Actions run 46010697518, 2026-11-27, workflow `spike-audiodevicestart.yaml` on the branch
   `test/86-runner-spike-2` (commits `3d94697` and `0512cb7`). The workflow is not part of `main`.
   The spike ended with a removal commit, so the files are only in those commits of the branch history.
+- The run ran on head `096ce78`. The hashes named in this document are the ones after the rebase onto `main`.
 - Runner: `macos-latest`, image `macos-26-arm64`, macOS 26.7.2 (build 25G332), SIP disabled, console user `runner`.
 - Four jobs, one runner each. Every quote below is a line of the saved job log of that run. Log times are UTC.
 - Source: a small ad hoc signed app, bundle id `cloud.ostendorf.spike-tone`, plays a 1 kHz sine at half scale
@@ -293,7 +294,21 @@ The other two change one thing each.
 
 ### Open
 
-- The BlackHole licence for use in CI is not checked here. No driver is needed for `clean-null`.
+- BlackHole and `switchaudio-osx` licences, from a later web research of 2026-11-27 (not part of the run):
+  - BlackHole source: GPL-3.0. The `LICENSE` file says so.
+  - BlackHole README: "BlackHole can be integrated into your CI/CD." The README sentences on GPL-3.0 and on a
+    licence for non-GPLv3 projects sit in the FAQ on integrating BlackHole into an app.
+  - BlackHole official binaries and installers: "All rights reserved" by Existential Audio Inc.
+    No terms for the binary were found. No statement on use in CI was found for the binary.
+  - `switchaudio-osx`: MIT, from the Homebrew formula and the `license.txt` of the upstream repository.
+  - Sources read: the BlackHole `LICENSE` and `README.md`, the Homebrew cask `blackhole-2ch`, the BlackHole project
+    page, the BlackHole releases page, the Homebrew formula `switchaudio-osx` and the upstream `license.txt`.
+    The web fetch returns summarised text, so the quotes are not checked byte for byte.
+  - Not read: any terms or EULA page of Existential Audio (none was found) and the contents of the pkg.
+    Not verified: that the pkg on the project page is the one built from the source.
+    Not verified: how the README sentences apply to a CI test that integrates nothing into a distributed app.
+    This is not legal advice.
+  - No driver is needed for `clean-null`.
 - Candidates left: a pending permission decision with nobody to answer a prompt, a tap start that needs a real
   audio clock on the destination or a session the runner lacks, and a defect in the tool.
   None of them is tested.
@@ -345,7 +360,7 @@ Result is negative. The probes make the route start calls one by one. The call t
 
 Steps that returned before the hang, in both probes:
 
-- `AudioHardwareCreateProcessTap` ok after 14 to 24 ms.
+- `AudioHardwareCreateProcessTap` ok after 5 to 24 ms.
 - `AudioHardwareCreateAggregateDevice` ok after 26 to 29 ms.
 - `AudioObjectSetPropertyData` of the tap list ok. The sub tap is readable.
 - The input streams of the aggregate device appear. Probe B lists `[112, 114]`.
@@ -355,7 +370,16 @@ Steps that returned before the hang, in both probes:
 - Earlier notes put the hang in `RouteSession.start`, and the first spike named `AudioDeviceStart`.
   The blocking call is `AudioDeviceCreateIOProcID` on the aggregate device that holds the tap.
   The tap and the aggregate device are created. The IO proc is not.
-- A missing TCC row for audio capture does not explain the hang. Writing the row changes nothing.
+- The row `kTCCServiceAudioCapture` for the bundle id of the probe changed nothing. Pass 2 hangs like pass 1.
+  This does not rule out a pending permission prompt. The log shows one that nobody can answer:
+  - In probe B pass 1, `coreaudiod` sends a `TCCAccessRequest` for `kTCCServiceAudioCapture` at 14:31:03.798.
+    That is 6 ms after `AudioDeviceCreateIOProcID begin`.
+  - `tccd` logs `AUTHREQ_PROMPTING` at 14:31:03.805 and `display_prompt` at 14:31:03.813.
+    The prior result is `Auth Right: Unknown (None)`.
+  - Probe A, tap, shows the same sequence from 14:33:08.405 to 14:33:08.419.
+  - `tccd` attributes the request to the subject `/opt/hca/hosted-compute-agent`.
+    It does not attribute it to the bundle id `cloud.ostendorf.spike-tap-steps`, which the row was written for.
+  - Untested: that this pending prompt causes the hang.
 - A plain IO proc on a device without a tap works on the same runner.
 
 ### Round 4 not verified
@@ -363,6 +387,10 @@ Steps that returned before the hang, in both probes:
 - Whether the call blocks in `coreaudiod` or in the client library.
 - Whether the microphone request that `tccd` logged for the tap-steps process (`kTCCServiceMicrophone`, preflight)
   is related. The log was not analysed further.
+- The `kTCCServiceAudioCapture` prompt lines listed above were read from the log, but not analysed further.
+  Whether answering the prompt would let the call return is not tested.
+- Why pass 2 shows no `kTCCServiceAudioCapture` request in its log window.
+  Candidates are the window cap and the `tccd` restart. Neither is checked.
 - Whether the same hang happens when the tool starts through Launch Services, see the open items of the second spike.
 
 ### Conclusion
