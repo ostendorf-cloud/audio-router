@@ -296,19 +296,22 @@ jobs:
           echo "cask-tag pushes the cask from ${DEFAULT_BRANCH} only, this run is on ${REF}: start it again on ${DEFAULT_BRANCH}" >&2
           exit 1
 
-  # Pushes the Homebrew cask to the tap, after the bundle job attached the zip its URL points at.
-  # Its own job, so a failed push shows as a red run and "Re-run failed jobs" repeats this job
-  # alone, with the bundle job's outputs kept. The cask is rendered from the zip downloaded from the
-  # release and verified against the hash the bundle job recorded and against the release's .sha256
-  # file (scripts/publish-homebrew-cask.sh). A manual run (workflow_dispatch with cask-tag, default
-  # branch only) skips the bundle job and verifies against the .sha256 file alone. A pre-release
-  # is skipped, an identical cask is left alone. Modelled on gitcd's homebrew job.
+  # Pushes the Homebrew cask to the tap, after the bundle job attached the zip its URL points at and
+  # the verify-asset job passed that published asset. A release event never pushes a cask for an
+  # asset that failed the check. Its own job, so a failed push shows as a red run and "Re-run failed
+  # jobs" repeats this job alone, with the bundle job's outputs kept. The cask is rendered from the
+  # zip downloaded from the release and verified against the hash the bundle job recorded and
+  # against the release's .sha256 file (scripts/publish-homebrew-cask.sh). A manual run
+  # (workflow_dispatch with cask-tag, default branch only) skips the bundle and verify-asset jobs
+  # and verifies against the .sha256 file alone. The notary resume run on a tag does not start this
+  # job. A pre-release is skipped, an identical cask is left alone. Modelled on gitcd's homebrew job.
   homebrew:
-    needs: bundle
-    # always() lets a manual run start while the bundle job is skipped.
+    needs: [bundle, verify-asset]
+    # always() lets a manual run start while the bundle and verify-asset jobs are skipped.
     if: >-
       always() && (
-      (github.event_name == 'release' && needs.bundle.result == 'success') ||
+      (github.event_name == 'release' && needs.bundle.result == 'success' &&
+      needs.verify-asset.result == 'success') ||
       (github.event_name == 'workflow_dispatch' && inputs.cask-tag != '' &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
     runs-on: ubuntu-latest
