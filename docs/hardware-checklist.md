@@ -80,7 +80,7 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
   `VERIFY_SIGNATURE=notarized scripts/verify-signature.sh` on the app. That covers `codesign --verify --deep
   --strict`, the hardened runtime flag, the entitlements, the Developer ID chain and the leaf identity, the
   timestamp, `spctl` with `source=Notarized Developer ID` and `stapler validate`.
-  A green `verify-asset` job on the release run replaces the shell commands of the Do list for the checks.
+  A green `verify-asset` job on the run that uploaded the asset replaces the shell commands of the Do list for the checks.
   Read its log for the `spctl` text and keep the run link in Notes.
 - The owner still checks by eye: the browser download with the quarantine flag (CI downloads with `gh`, which
   sets none), the Finder unzip, the double click and the absence of an "Apple could not verify" warning, the

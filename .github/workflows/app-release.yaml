@@ -234,11 +234,14 @@ jobs:
   # (codesign, runtime, entitlements, Developer ID chain, timestamp, spctl, stapler validate).
   # It runs when the bundle job uploaded to a release: a release event and the notary resume run on a
   # release tag (workflow_dispatch on refs/tags/v* with notary-submission-id). A dry run publishes no
-  # asset, and a manual cask-tag run skips the bundle job and so this job.
+  # asset, and a manual cask-tag run skips the bundle job and so this job. On a release event it
+  # never skips: an empty tag output fails the tag check instead of passing green.
   # It reads the public release with the workflow token and uses no signing secret.
   verify-asset:
     needs: bundle
-    if: needs.bundle.result == 'success' && needs.bundle.outputs.release-tag != ''
+    if: >-
+      needs.bundle.result == 'success' &&
+      (github.event_name == 'release' || needs.bundle.outputs.release-tag != '')
     runs-on: macos-latest
     timeout-minutes: 15
     permissions:
