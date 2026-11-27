@@ -30,7 +30,8 @@ name: app-release
 #
 # After the upload, the homebrew job pushes Casks/audio-router.rb to ostendorf-cloud/homebrew-tap,
 # see scripts/publish-homebrew-cask.sh. A manual run from the default branch with cask-tag set
-# skips the build and pushes the cask of that published release again.
+# checks the asset of that published release with the verify-asset job, skips the build and pushes the
+# cask again.
 
 on:
   release:
@@ -232,31 +233,47 @@ jobs:
   # .sha256 file from the published release, checks the checksum, compares the hash with the one the
   # bundle job recorded and runs scripts/verify-signature.sh in notarized mode on the unzipped app
   # (codesign, runtime, entitlements, Developer ID chain, timestamp, spctl, stapler validate).
-  # It runs when the bundle job uploaded to a release: a release event and the notary resume run on a
-  # release tag (workflow_dispatch on refs/tags/v* with notary-submission-id). A dry run publishes no
-  # asset, and a manual cask-tag run skips the bundle job and so this job. On a release event it
-  # never skips: an empty tag output fails the tag check instead of passing green.
+  # It runs in three cases:
+  #   - a release event, after the bundle job uploaded the asset. It never skips: an empty tag output
+  #     fails the tag check instead of passing green.
+  #   - the notary resume run on a release tag (workflow_dispatch on refs/tags/v* with
+  #     notary-submission-id), after the bundle job uploaded the asset.
+  #   - a manual cask-tag run from the default branch. The bundle job is skipped there, so no hash was
+  #     recorded and the hash comparison is left out. The checksum, the signature and the notarization
+  #     checks run on the asset of the tag the input names. The checkout is the default branch, so the
+  #     check uses its scripts and entitlements, never the input as a ref.
+  # A dry run publishes no asset and starts neither this job nor the homebrew job.
+  # !cancelled() lets the cask-tag case start while the bundle job is skipped. The first two cases
+  # of the condition still need a successful bundle job.
   # It reads the public release with the workflow token and uses no signing secret.
   verify-asset:
     needs: bundle
     if: >-
-      needs.bundle.result == 'success' &&
-      (github.event_name == 'release' || needs.bundle.outputs.release-tag != '')
+      !cancelled() && (
+      (needs.bundle.result == 'success' &&
+      (github.event_name == 'release' || needs.bundle.outputs.release-tag != '')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.cask-tag != '' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
     runs-on: macos-latest
     timeout-minutes: 15
     permissions:
       contents: read
+    env:
+      # A manual cask-tag run. The tag is the input and the code is the default branch. In the other
+      # cases the tag is the bundle job's output and the code is that tag.
+      CASK_TAG_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.cask-tag != '' && 'true' || 'false' }}
     steps:
+      # The input is never a ref: a cask-tag run checks out the ref it started on, the default branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ needs.bundle.outputs.release-tag }}
+          ref: ${{ env.CASK_TAG_RUN == 'true' && github.ref || needs.bundle.outputs.release-tag }}
           persist-credentials: false
 
       - name: Download the published asset and verify it
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.bundle.outputs.release-tag }}
+          TAG: ${{ env.CASK_TAG_RUN == 'true' && inputs.cask-tag || needs.bundle.outputs.release-tag }}
           SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
           BUNDLE_ZIP_SHA256: ${{ needs.bundle.outputs.zip-sha256 }}
           VERIFY_SIGNATURE: notarized
@@ -268,18 +285,21 @@ jobs:
           gh release download "${TAG}" --dir "${work}" --pattern "${zip}" --pattern "${zip}.sha256"
           ls -l "${work}"
           (cd "${work}" && shasum -a 256 -c "${zip}.sha256")
-          [[ -n "${BUNDLE_ZIP_SHA256}" ]] || { echo "the bundle job recorded no zip hash" >&2; exit 1; }
-          actual="$(shasum -a 256 "${work}/${zip}")"
-          actual="${actual%% *}"
-          if [[ "${actual}" != "${BUNDLE_ZIP_SHA256}" ]]; then
-            echo "hash mismatch: downloaded ${zip} is ${actual}, the bundle job recorded ${BUNDLE_ZIP_SHA256}" >&2
-            exit 1
+          # A cask-tag run has no bundle job of its own run to compare with.
+          if [[ "${CASK_TAG_RUN}" != true ]]; then
+            [[ -n "${BUNDLE_ZIP_SHA256}" ]] || { echo "the bundle job recorded no zip hash" >&2; exit 1; }
+            actual="$(shasum -a 256 "${work}/${zip}")"
+            actual="${actual%% *}"
+            if [[ "${actual}" != "${BUNDLE_ZIP_SHA256}" ]]; then
+              echo "hash mismatch: downloaded ${zip} is ${actual}, the bundle job recorded ${BUNDLE_ZIP_SHA256}" >&2
+              exit 1
+            fi
           fi
           ditto -x -k "${work}/${zip}" "${work}/unzipped"
           scripts/verify-signature.sh "${work}/unzipped/audio-router.app"
 
-  # A manual run with cask-tag pushes from the default branch only. On another branch the bundle
-  # and homebrew jobs both skip, so this job fails the run instead of leaving it green.
+  # A manual run with cask-tag pushes from the default branch only. On another branch the bundle,
+  # verify-asset and homebrew jobs all skip, so this job fails the run instead of leaving it green.
   cask-tag-branch:
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.cask-tag != '' &&
@@ -297,23 +317,26 @@ jobs:
           exit 1
 
   # Pushes the Homebrew cask to the tap, after the bundle job attached the zip its URL points at and
-  # the verify-asset job passed that published asset. A release event never pushes a cask for an
-  # asset that failed the check. Its own job, so a failed push shows as a red run and "Re-run failed
-  # jobs" repeats this job alone, with the bundle job's outputs kept. The cask is rendered from the
-  # zip downloaded from the release and verified against the hash the bundle job recorded and
-  # against the release's .sha256 file (scripts/publish-homebrew-cask.sh). A manual run
-  # (workflow_dispatch with cask-tag, default branch only) skips the bundle and verify-asset jobs
-  # and verifies against the .sha256 file alone. The notary resume run on a tag does not start this
-  # job. A pre-release is skipped, an identical cask is left alone. Modelled on gitcd's homebrew job.
+  # the verify-asset job passed that published asset. Neither a release event nor a manual cask-tag
+  # run pushes a cask for an asset that failed the check. Its own job, so a failed push shows as a
+  # red run and "Re-run failed jobs" repeats this job alone, with the bundle job's outputs kept. The
+  # cask is rendered from the zip downloaded from the release and verified against the hash the
+  # bundle job recorded and against the release's .sha256 file (scripts/publish-homebrew-cask.sh).
+  # A manual run (workflow_dispatch with cask-tag, default branch only) skips the bundle job, runs
+  # the verify-asset job on the asset of that tag and verifies against the .sha256 file alone. The
+  # notary resume run on a tag does not start this job. A pre-release is skipped, an identical cask
+  # is left alone. Modelled on gitcd's homebrew job.
   homebrew:
     needs: [bundle, verify-asset]
-    # always() lets a manual run start while the bundle and verify-asset jobs are skipped.
+    # always() lets a manual run start while the bundle job is skipped. Both paths name the
+    # verify-asset result, so a skipped or failed check never counts as a pass.
     if: >-
       always() && (
       (github.event_name == 'release' && needs.bundle.result == 'success' &&
       needs.verify-asset.result == 'success') ||
       (github.event_name == 'workflow_dispatch' && inputs.cask-tag != '' &&
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      needs.verify-asset.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

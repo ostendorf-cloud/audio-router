@@ -19,11 +19,22 @@
 - Its `verify-asset` job downloads the published zip and `.sha256`, checks the hash, compares it
   with the hash the `bundle` job recorded and runs
   `VERIFY_SIGNATURE=notarized scripts/verify-signature.sh` on the unzipped app.
-  It runs on release events and on the notary resume run on a tag.
 - Its `homebrew` job pushes the cask to the tap with a token of the release app scoped to `homebrew-tap`.
-  The job order is `bundle`, `verify-asset`, `homebrew`. On a release event `homebrew` starts only after
-  `verify-asset` succeeded. A manual `cask-tag` run on the default branch skips the first two and still starts it.
-  The notary resume run on a tag does not start `homebrew`.
+- The job order is `bundle`, `verify-asset`, `homebrew`. The kinds of run:
+  - A release event runs all three. `verify-asset` follows a successful `bundle`, `homebrew` follows a
+    successful `verify-asset`.
+  - The notary resume run (manual, on a tag, with `notary-submission-id`) runs `bundle` and `verify-asset`.
+    It does not start `homebrew`.
+  - A manual `cask-tag` run on the default branch skips `bundle`, runs `verify-asset` on the asset of that tag
+    and starts `homebrew` only after it succeeded. A failed check pushes no cask.
+  - A dry run (manual, empty `cask-tag`) runs `bundle` only and publishes nothing.
+- A `cask-tag` run has no `bundle` job to compare with, so `verify-asset` leaves the recorded hash comparison out.
+  The `.sha256` check, the signature and the notarization checks stay.
+  A tag whose asset is not signed with a Developer ID, notarized and stapled fails the check and gets no cask.
+  That is intended, it covers the ad hoc signed v0.1.0.
+- A `cask-tag` run checks out the default branch, never the tag input. The check uses the current
+  `scripts/verify-signature.sh` and `Resources/AudioRouter.entitlements`. An older release signed with other
+  entitlements fails the check. The alternative, the scripts of the tag, would trust old code.
 - The cask strips no quarantine attribute. A notarized release should open without a Gatekeeper warning.
   Not verified until the first notarized release ran.
 - `lint:license` in the Taskfile and `find-commands` in `checks.yaml` are kept in step by hand.
