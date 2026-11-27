@@ -71,11 +71,12 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 
 ### 1. First open of the downloaded app
 
-- Ownership: machine part could run in CI (issue 84: checksum, `codesign`, `spctl`, `stapler` on the asset).
+- Ownership: machine part runs in CI (job `verify-asset`, issue 84: checksum, `codesign`, `spctl`, `stapler` on the asset).
   The owner keeps the quarantine flag from a browser download, the Gatekeeper dialog and the menu bar look.
   See the step table in [`docs/runner-automation.md`](runner-automation.md).
 - CI proved (job `verify-asset` of `app-release.yaml`, issue 84): the job downloads the published zip and
-  `.sha256` file and runs `shasum -a 256 -c`. It unzips with `ditto` and runs
+  `.sha256` file, runs `shasum -a 256 -c` and compares the hash with the one the `bundle` job recorded.
+  It unzips with `ditto` and runs
   `VERIFY_SIGNATURE=notarized scripts/verify-signature.sh` on the app. That covers `codesign --verify --deep
   --strict`, the hardened runtime flag, the entitlements, the Developer ID chain and the leaf identity, the
   timestamp, `spctl` with `source=Notarized Developer ID` and `stapler validate`.

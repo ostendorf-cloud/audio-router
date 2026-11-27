@@ -74,9 +74,11 @@ jobs:
     timeout-minutes: 75
     permissions:
       contents: write
-    # The sha256 of the zip this job built and uploaded, for the homebrew job.
+    # The sha256 of the zip this job built and uploaded, for the homebrew job. The tag of the release
+    # it uploaded to, empty on a dry run, for the verify-asset job.
     outputs:
       zip-sha256: ${{ steps.asset.outputs.sha256 }}
+      release-tag: ${{ env.RELEASE_TAG }}
     env:
       # Every event value reaches a script through env, never inline in a `run:`.
       # Empty on a dry run, where the version comes from git describe. A manual resume run on a tag
@@ -228,14 +230,15 @@ jobs:
 
   # Checks the asset a user downloads, not the app the bundle job built: it downloads the zip and the
   # .sha256 file from the published release, checks the checksum, compares the hash with the one the
-  # bundle job recorded and runs scripts/verify-signature.sh
-  # in notarized mode on the unzipped app (codesign, runtime, entitlements, Developer ID chain,
-  # timestamp, spctl, stapler validate). Release events only: a dry run publishes no asset, and a
-  # manual resume run (workflow_dispatch with cask-tag) skips the bundle job and so this job.
+  # bundle job recorded and runs scripts/verify-signature.sh in notarized mode on the unzipped app
+  # (codesign, runtime, entitlements, Developer ID chain, timestamp, spctl, stapler validate).
+  # It runs when the bundle job uploaded to a release: a release event and the notary resume run on a
+  # release tag (workflow_dispatch on refs/tags/v* with notary-submission-id). A dry run publishes no
+  # asset, and a manual cask-tag run skips the bundle job and so this job.
   # It reads the public release with the workflow token and uses no signing secret.
   verify-asset:
     needs: bundle
-    if: github.event_name == 'release' && needs.bundle.result == 'success'
+    if: needs.bundle.result == 'success' && needs.bundle.outputs.release-tag != ''
     runs-on: macos-latest
     timeout-minutes: 15
     permissions:
@@ -243,14 +246,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.bundle.outputs.release-tag }}
           persist-credentials: false
 
       - name: Download the published asset and verify it
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ needs.bundle.outputs.release-tag }}
           SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
           BUNDLE_ZIP_SHA256: ${{ needs.bundle.outputs.zip-sha256 }}
           VERIFY_SIGNATURE: notarized
