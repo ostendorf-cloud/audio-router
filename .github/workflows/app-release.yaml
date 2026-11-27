@@ -74,9 +74,11 @@ jobs:
     timeout-minutes: 75
     permissions:
       contents: write
-    # The sha256 of the zip this job built and uploaded, for the homebrew job.
+    # The sha256 of the zip this job built and uploaded, for the homebrew job. The tag of the release
+    # it uploaded to, empty on a dry run, for the verify-asset job.
     outputs:
       zip-sha256: ${{ steps.asset.outputs.sha256 }}
+      release-tag: ${{ env.RELEASE_TAG }}
     env:
       # Every event value reaches a script through env, never inline in a `run:`.
       # Empty on a dry run, where the version comes from git describe. A manual resume run on a tag
@@ -225,6 +227,56 @@ jobs:
             dist/${{ steps.asset.outputs.zip }}
             dist/${{ steps.asset.outputs.zip }}.sha256
           if-no-files-found: error
+
+  # Checks the asset a user downloads, not the app the bundle job built: it downloads the zip and the
+  # .sha256 file from the published release, checks the checksum, compares the hash with the one the
+  # bundle job recorded and runs scripts/verify-signature.sh in notarized mode on the unzipped app
+  # (codesign, runtime, entitlements, Developer ID chain, timestamp, spctl, stapler validate).
+  # It runs when the bundle job uploaded to a release: a release event and the notary resume run on a
+  # release tag (workflow_dispatch on refs/tags/v* with notary-submission-id). A dry run publishes no
+  # asset, and a manual cask-tag run skips the bundle job and so this job. On a release event it
+  # never skips: an empty tag output fails the tag check instead of passing green.
+  # It reads the public release with the workflow token and uses no signing secret.
+  verify-asset:
+    needs: bundle
+    if: >-
+      needs.bundle.result == 'success' &&
+      (github.event_name == 'release' || needs.bundle.outputs.release-tag != '')
+    runs-on: macos-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ needs.bundle.outputs.release-tag }}
+          persist-credentials: false
+
+      - name: Download the published asset and verify it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.bundle.outputs.release-tag }}
+          SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          BUNDLE_ZIP_SHA256: ${{ needs.bundle.outputs.zip-sha256 }}
+          VERIFY_SIGNATURE: notarized
+        run: |
+          set -euo pipefail
+          [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "unexpected tag: ${TAG}" >&2; exit 1; }
+          work="$(mktemp -d "${RUNNER_TEMP}/asset.XXXXXXXX")"
+          zip="audio-router-${TAG#v}-arm64.zip"
+          gh release download "${TAG}" --dir "${work}" --pattern "${zip}" --pattern "${zip}.sha256"
+          ls -l "${work}"
+          (cd "${work}" && shasum -a 256 -c "${zip}.sha256")
+          [[ -n "${BUNDLE_ZIP_SHA256}" ]] || { echo "the bundle job recorded no zip hash" >&2; exit 1; }
+          actual="$(shasum -a 256 "${work}/${zip}")"
+          actual="${actual%% *}"
+          if [[ "${actual}" != "${BUNDLE_ZIP_SHA256}" ]]; then
+            echo "hash mismatch: downloaded ${zip} is ${actual}, the bundle job recorded ${BUNDLE_ZIP_SHA256}" >&2
+            exit 1
+          fi
+          ditto -x -k "${work}/${zip}" "${work}/unzipped"
+          scripts/verify-signature.sh "${work}/unzipped/audio-router.app"
 
   # A manual run with cask-tag pushes from the default branch only. On another branch the bundle
   # and homebrew jobs both skip, so this job fails the run instead of leaving it green.
