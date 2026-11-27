@@ -293,9 +293,21 @@ The other two change one thing each.
 - Candidates left: a pending permission decision with nobody to answer a prompt, a tap start that needs a real
   audio clock on the destination or a session the runner lacks, and a defect in the tool.
   None of them is tested.
-- Proposed and not run:
-  - A probe that makes the Core Audio calls of the route one by one, each with a time stamp before and after, and
-    starts a plain IO proc on the `Null Audio Device` without a tap. It shows which call blocks and whether any
-    IO start works on the runner. A `log stream` at info and debug level runs next to it.
-  - The same probe as an app bundle, once with and once without the row `kTCCServiceAudioCapture` for its bundle id.
-    It shows whether a permission decision blocks the start.
+- Two probes are written and have not run. They are the throwaway workflow `spike-tap-steps.yaml` and the files
+  under `.github/spike/`. They never go to `main`, like the first workflow.
+  - `tap-steps.swift` makes the Core Audio calls of the route start one by one in the default device stream mode,
+    with a time stamp before and after each call. A watchdog ends the process when one call runs for 55 s.
+    The mode `control` starts a plain IO proc on the `Null Audio Device`, with no tap and no aggregate.
+    `tap-steps-Info.plist` carries the `NSAudioCaptureUsageDescription`.
+  - Job `probe A steps` runs the program as a plain binary with the plist embedded, as the tool has it.
+    It runs the control first, then the tap on the tone app.
+  - Job `probe B app bundle` runs the program as an ad hoc signed app bundle.
+    Pass 1 runs with no row for its bundle id.
+    Pass 2 runs after the row `kTCCServiceAudioCapture` is written to the system database and `tccd` is restarted.
+    The row write is tried once. SIP is not changed. When the write fails, the job says so and skips pass 2.
+  - Both jobs write `log stream --info --debug` of `coreaudiod`, `tccd` and the TCC subsystem to a file for the
+    whole job. They print the lines of each run window, capped at 1.5 MB per window.
+    The log times are local time, the same as the time stamps of the program.
+  - `tap-steps-lib.sh` holds the shell helpers. `tone-Info.plist` is the plist of the tone bundle.
+  - The launch path is not tested: both programs start from the runner shell, not through Launch Services.
+    Which process the permission check attributes the request to is not verified.

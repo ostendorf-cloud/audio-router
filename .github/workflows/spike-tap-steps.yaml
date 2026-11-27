@@ -1,0 +1,212 @@
+name: spike-tap-steps
+
+# Throwaway spike for issue 86. Never merge to main, delete it with the branch.
+# Second workflow of the spike, next to spike-audiodevicestart.yaml, which stays as it is.
+# A push to the spike branch runs both jobs, one runner each. Dispatch needs the file on the default branch,
+# which this workflow never reaches, so the push trigger is the way to run it.
+# No secrets. The run changes the runner only, which is thrown away after the run.
+# A green job says nothing. Every probe step ends with exit 0 on purpose. Read the log lines SPIKE[...], and in
+# them the lines STEP, HANG and RESULT of .github/spike/tap-steps.swift.
+#
+# The question: which Core Audio call of a route start blocks on a hosted runner, and does a permission decision
+# or the missing row for it have to do with it.
+#
+# probe A, .github/spike/tap-steps.swift as a plain binary with the Info.plist embedded, as the tool has it:
+#   1. control: a plain IO proc on the Null Audio Device, no tap, no aggregate
+#   2. tap: the calls of the route start one by one with a time stamp before and after each, on the tone app,
+#      destination Null Audio Device. A call that does not return in STEP_WATCHDOG seconds ends the process (HANG).
+# probe B, the same program as an ad hoc signed app bundle with NSAudioCaptureUsageDescription:
+#   1. a tap run with no TCC row for the bundle id
+#   2. the row for kTCCServiceAudioCapture is written to the system database, then tccd is restarted so it
+#      reads the row, then a second tap run. If the row cannot be written, the step says so and pass 2 is skipped.
+#      SIP is never changed and nothing is tried after a refusal.
+# Both jobs keep `log stream --info --debug` of coreaudiod, tccd and the TCC subsystem in a file for the whole job and
+# print the lines of each run window, capped at LOG_CAP bytes per window, so the job log stays far below 5 MB.
+# Setup follows the variant clean-null of the first workflow: no driver, no coreaudiod restart, default output untouched.
+# Shell helpers are in .github/spike/tap-steps-lib.sh.
+
+on:
+  push:
+    branches: [test/86-runner-spike-2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TONE_ID: cloud.ostendorf.spike-tone
+  STEPS_ID: cloud.ostendorf.spike-tap-steps
+  DEST_NAME: Null Audio Device
+  STEP_WATCHDOG: "55"
+  HOLD: "5"
+  LOG_CAP: "1500000"
+  TCC_DB: /Library/Application Support/com.apple.TCC/TCC.db
+
+jobs:
+  probe-a:
+    name: probe A steps
+    # The image the release workflow (app-release.yaml, job bundle) uses.
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner facts
+        run: |
+          echo "SPIKE[facts] probe A"
+          sw_vers
+          uname -m
+          echo "csrutil: $(csrutil status 2>&1)"
+          echo "console user: $(stat -f %Su /dev/console)"
+          echo "time zone: $(date '+%Z %z'), the log times below are local time"
+
+      - name: Build the step program and the tone
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          swiftc -swift-version 5 -O .github/spike/tap-steps.swift -o "$RUNNER_TEMP/tap-steps" \
+            -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker .github/spike/tap-steps-Info.plist
+          codesign --verify --verbose=2 "$RUNNER_TEMP/tap-steps"
+          codesign -dv "$RUNNER_TEMP/tap-steps" 2>&1 | head -20
+          build_tone
+
+      - name: Start the log stream and the tone
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          start_stream
+          start_tone
+
+      - name: Control, a plain IO proc on the Null Audio Device
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          set +e
+          window_begin control
+          bounded 90 "$RUNNER_TEMP/tap-steps" control --device-name "$DEST_NAME" --hold "$HOLD" --watchdog "$STEP_WATCHDOG"
+          echo "SPIKE[control] exit code $?"
+          window_end control
+
+      - name: Tap, the route start calls one by one
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          set +e
+          window_begin tap
+          bounded 90 "$RUNNER_TEMP/tap-steps" tap --bundle-id "$TONE_ID" --device-name "$DEST_NAME" \
+            --hold "$HOLD" --watchdog "$STEP_WATCHDOG"
+          echo "SPIKE[tap] exit code $? (0 started, 2 failed or found nothing, 3 a call hung)"
+          window_end tap
+
+      - name: Logs for the evidence
+        if: always()
+        continue-on-error: true
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          stop_stream
+          log_window control
+          log_window tap
+          echo "-- tone log"
+          cat "$RUNNER_TEMP/tone.log" || true
+          echo "-- TCC rows for audio"
+          sudo sqlite3 "$TCC_DB" "select service, client, client_type, auth_value from access where service like '%Audio%';" || true
+
+  probe-b:
+    name: probe B app bundle
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner facts
+        run: |
+          echo "SPIKE[facts] probe B"
+          sw_vers
+          uname -m
+          echo "csrutil: $(csrutil status 2>&1)"
+          echo "console user: $(stat -f %Su /dev/console)"
+          echo "time zone: $(date '+%Z %z'), the log times below are local time"
+
+      - name: Build the app bundle and the tone
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          APP="$RUNNER_TEMP/tap-steps.app"
+          mkdir -p "$APP/Contents/MacOS"
+          swiftc -swift-version 5 -O .github/spike/tap-steps.swift -o "$APP/Contents/MacOS/tap-steps"
+          cp .github/spike/tap-steps-Info.plist "$APP/Contents/Info.plist"
+          plutil -lint "$APP/Contents/Info.plist"
+          codesign --force --sign - "$APP"
+          codesign --verify --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | head -20
+          echo "STEPS_APP=$APP" >> "$GITHUB_ENV"
+          build_tone
+
+      - name: Start the log stream and the tone
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          start_stream
+          start_tone
+
+      - name: Pass 1, no TCC row for the bundle id
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          set +e
+          echo "-- audio rows before"
+          sudo sqlite3 "$TCC_DB" \
+            "select service, client, client_type, auth_value from access where service like '%Audio%' or client = '${STEPS_ID}';"
+          window_begin norow
+          bounded 90 "$STEPS_APP/Contents/MacOS/tap-steps" tap --bundle-id "$TONE_ID" --device-name "$DEST_NAME" \
+            --hold "$HOLD" --watchdog "$STEP_WATCHDOG"
+          echo "SPIKE[pass1] exit code $? (0 started, 2 failed or found nothing, 3 a call hung)"
+          window_end norow
+
+      - name: Write the TCC row
+        run: |
+          set +e
+          echo "SPIKE[tcc-row] csrutil: $(csrutil status 2>&1)"
+          COLS="service, client, client_type, auth_value, auth_reason, auth_version"
+          WHERE="service = 'kTCCServiceAudioCapture' and client = '${STEPS_ID}'"
+          sudo sqlite3 "$TCC_DB" \
+            "insert or replace into access (${COLS}) values ('kTCCServiceAudioCapture', '${STEPS_ID}', 0, 2, 4, 1);" \
+            2> "$RUNNER_TEMP/tcc-write.err"
+          WRITE_RC=$?
+          ROWS="$(sudo sqlite3 "$TCC_DB" "select service, client, client_type, auth_value from access where ${WHERE};" 2>&1)"
+          if [ "${WRITE_RC}" -eq 0 ] && [ -n "${ROWS}" ]; then
+            echo "SPIKE[tcc-row] RESULT: written, read back: ${ROWS}"
+            echo "ROW_WRITTEN=yes" >> "$GITHUB_ENV"
+            # tccd may cache its database, so restart it. Pass 2 changes the row and the tccd process together.
+            sudo killall tccd 2>&1 || true
+            sleep 3
+            echo "SPIKE[tcc-row] tccd restarted at $(date '+%Y-%m-%d %H:%M:%S')"
+          else
+            echo "SPIKE[tcc-row] RESULT: not written, sqlite3 exit ${WRITE_RC}, read back: ${ROWS:-nothing}"
+            echo "SPIKE[tcc-row] sqlite3 error text: $(cat "$RUNNER_TEMP/tcc-write.err")"
+            echo "SPIKE[tcc-row] The row cannot be written on this runner. SIP was not changed and no other way was tried."
+            echo "SPIKE[tcc-row] Pass 2 is skipped."
+            echo "ROW_WRITTEN=no" >> "$GITHUB_ENV"
+          fi
+
+      - name: Pass 2, with the TCC row for the bundle id
+        if: env.ROW_WRITTEN == 'yes'
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          set +e
+          window_begin row
+          bounded 90 "$STEPS_APP/Contents/MacOS/tap-steps" tap --bundle-id "$TONE_ID" --device-name "$DEST_NAME" \
+            --hold "$HOLD" --watchdog "$STEP_WATCHDOG"
+          echo "SPIKE[pass2] exit code $? (0 started, 2 failed or found nothing, 3 a call hung)"
+          window_end row
+
+      - name: Logs for the evidence
+        if: always()
+        continue-on-error: true
+        run: |
+          source .github/spike/tap-steps-lib.sh
+          stop_stream
+          echo "SPIKE[summary] row written: ${ROW_WRITTEN:-step not reached}"
+          log_window norow
+          log_window row
+          echo "-- tone log"
+          cat "$RUNNER_TEMP/tone.log" || true
+          echo "-- TCC rows for audio"
+          sudo sqlite3 "$TCC_DB" "select service, client, client_type, auth_value from access where service like '%Audio%';" || true

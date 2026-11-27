@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Simon Ostendorf -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Throwaway for issue 86. Never merge to main. Embedded in probe A, the Info.plist of the bundle in probe B. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>cloud.ostendorf.spike-tap-steps</string>
+	<key>CFBundleName</key>
+	<string>tap-steps</string>
+	<key>CFBundleExecutable</key>
+	<string>tap-steps</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Throwaway spike for issue 86. It taps the audio of a test tone.</string>
+</dict>
+</plist>
