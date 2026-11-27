@@ -124,7 +124,7 @@ Cause of the missing meter line, as far as the log shows it:
   - The TCC state (Q2).
   - A `coreaudiod` restarted shortly before (Q1).
   - A runner with no real audio clock.
-- `268451843` is `0x10004003`. Its meaning is unverified. Check it against the SDK headers.
+- `268451843` is `0x10004003`. Its meaning is unverified. It is not in the SDK headers, see the second spike below.
 - That the tap and the aggregate device were created is inferred from the error text `start IO`, not shown.
 
 ## Step table
@@ -194,16 +194,108 @@ Filed as issues 84, 85 and 86. The owner triages them.
 - Issue 86, second spike on the `AudioDeviceStart` block: the route start blocked about 3 minutes, then failed with
   `OSStatus 268451843`, whose meaning is unverified. Only worth it if the owner wants a tap in CI. Details below.
 
-### Second spike, only if the owner wants a tap in CI
+## Second spike, issue 86: the route start hangs in all four variants
 
-Vary one thing per run:
+Result so far is negative. A route with a tap does not start on the hosted runner, in every variant tried.
+The cause is not found.
 
-- Keep the default output on `Apple Virtual Sound Device` and route to `BlackHole 2ch`.
-- Route to the `Null Audio Device`.
-- Run the route without the `coreaudiod` restart in the same step.
-- Put a timeout around the route, so a hung start does not take 3 minutes.
-- Use a source with a bundle id that plays without an Apple Event, for example a small signed test app.
-  `afplay` was not listed as a process.
-- Find the real service name of the audio capture permission in the SDK or a TCC log on a real Mac,
-  then write that row for the client the check uses.
-- Check the BlackHole licence before any use in CI.
+### Second spike method and limits
+
+- Run: GitHub Actions run 46010697518, 2026-11-27, workflow `spike-audiodevicestart.yaml` on the branch
+  `test/86-runner-spike-2` (commits `8ec1cb2` and `096ce78`). The workflow is not part of `main`.
+- Runner: `macos-latest`, image `macos-26-arm64`, macOS 26.7.2 (build 25G332), SIP disabled, console user `runner`.
+- Four jobs, one runner each. Every quote below is a line of the saved job log of that run. Log times are UTC.
+- Source: a small ad hoc signed app, bundle id `cloud.ostendorf.spike-tone`, plays a 1 kHz sine at half scale
+  with `AVAudioEngine` on the default output. No Apple Event is involved.
+- Route: `audio-router-proto route --bundle-id cloud.ostendorf.spike-tone --channels 1,2 --meter` under a
+  watchdog. After 45 s without a meter line the script sends `TERM`, and `KILL` 5 s later.
+- One run only. A second run could differ.
+
+| Variant | Driver and `coreaudiod` restart | Default output at the route | Destination | Result |
+| --- | --- | --- | --- | --- |
+| `baseline` | yes | `BlackHole 2ch` | `BlackHole 2ch` | no meter line in 45 s, `KILL` needed |
+| `default-avsd` | yes | `Apple Virtual Sound Device` | `BlackHole 2ch` | no meter line in 45 s, `KILL` needed |
+| `null-device` | yes | `BlackHole 2ch` | `Null Audio Device` | no meter line in 45 s, `KILL` needed |
+| `clean-null` | no | `Apple Virtual Sound Device` | `Null Audio Device` | no meter line in 45 s, `KILL` needed |
+
+`clean-null` changes three things against `baseline`: no driver, no `coreaudiod` restart, default output untouched.
+The other two change one thing each.
+
+### Shown by the log
+
+- The source plays in all four jobs. The tool lists `cloud.ostendorf.spike-tone  pid <n>  playing`
+  and the source prints `tone: playing at 48000.0 Hz for 600.0 s`.
+- The audio engine delivers the tone to the default output. `coreaudiod` reports in `default-avsd`,
+  `null-device` and `clean-null`:
+  `RTAID [ ... clientID=HAL node=-Output ... ] -- [ rms:[-9.03...], peaks:[-6.020600] ]`.
+  That is the level of a half scale sine. The sample time advances by about 480000 every 10 s, which is 48 kHz in real time.
+  The `baseline` excerpt is too short to hold such a line.
+- The route prints nothing before the `TERM`. Then the tool prints
+  `stop requested while the route starts. The start cannot be cancelled ...`. That line is printed only while the
+  tool is inside `RouteSession.start`. So the tool was in its start in all four jobs at the time of the `TERM`.
+- The `TERM` does not end the tool, as the notice says. Each job needs `KILL`: `Killed: 9`, after
+  `SPIKE[route] still alive after TERM, sending KILL`.
+- No `OSStatus` came back within 45 s. The first spike's `268451843` came after about 3 minutes.
+  Whether this run would end in the same error without the `KILL` is not known.
+- `SwitchAudioSource -s "BlackHole 2ch" -t output` returns in about 1 s (`baseline`, 13:53:17 to 13:53:18).
+  The switch itself does not hang.
+- The tool lists `BlackHole 2ch` after the `coreaudiod` restart (`null-device`), as in the first spike.
+- The query for audio rows in the system TCC database printed nothing in all four jobs. This spike wrote no row.
+  The user database was not read.
+- `kTCCServiceAudioCapture` appears in none of the four logs.
+  The `kTCCServiceMicrophone` and `kTCCServiceScreenCapture` requests for `SwitchAudioSource`
+  (`authValue=2`, `authReason=4`) come from the evidence step after the route. They are not about the route.
+
+### Checks on a Mac, no runner
+
+- `268451843` is `0x10004003`. It is not in the macOS SDK. A search of `CoreAudio.framework/Headers`
+  and `AudioToolbox.framework` for the decimal and the hex value found nothing.
+  `AudioHardwareBase.h` lines 154 to 166 list the four character `OSStatus` values, and none matches.
+  The meaning is unknown.
+- The service name `kTCCServiceAudioCapture` is real on macOS 27. `strings` on
+  `/System/Library/PrivateFrameworks/TCC.framework/Support/tccd` lists it.
+  The SDK file `System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC.tbd` exports `_kTCCServiceAudioCapture`.
+- Not verified: which client the tap check reads, a bundle id or a path.
+- Not verified: that `tccd` reads a written row without a restart.
+
+### What the four timeouts answer
+
+- The hang does not depend on the default output being `BlackHole 2ch`. `default-avsd` hangs too.
+- The hang does not depend on the destination being `BlackHole 2ch`. `null-device` and `clean-null` hang too.
+- The hang does not depend on a `coreaudiod` restart or on an installed driver. `clean-null` has neither.
+- A missing source is not the cause. The source plays in all four jobs.
+- The default output has a running real time clock. That does not show it for the `Null Audio Device` aggregate.
+- The watchdog works. A hung start costs about 50 s, not 3 minutes.
+
+### What they do not answer
+
+- Which call blocks. The log has no stack and no step markers inside the tool.
+  The first spike named `AudioDeviceStart`. For this run that is inferred from the order in
+  `CoreAudioRoutingBackend.swift`. It is not shown.
+- Inference, not shown: the tap and the aggregate device exist while the start hangs.
+  In every job `coreaudiod` logs `HALS_MultiTap::unregister_meta_device`,
+  `HALS_Device::_Deactivate: deactivating device <id>: <uuid>` and `HALS_MultiTap_Engine::UnregisterIOContext`
+  within about 0.1 s of the `KILL`. The runner log and the system log use different clocks, so the order is not shown.
+  A multi tap device that disappears with the process fits a tap aggregate. The log does not name it.
+- Whether a permission decision is pending. `clean-null` is the only job whose log excerpt covers the whole 45 s.
+  Between 13:51:59 and 13:52:48 it holds only `RTAID` lines of the tone and two LaunchServices notifications.
+  `tccd` and `coreaudiod` log no request for the tool.
+  The excerpt is `log show` at the default level, so info and debug lines are not in it.
+  Absence of a line is not proof.
+- Why the first spike ended with an error after 3 minutes and this one was cut at 45 s.
+- Whether any tap works on a hosted runner. Nothing here shows a working tap.
+- The excerpt of `baseline`, `default-avsd` and `null-device` is the last 300 lines of `log show`. It covers
+  only the last 3 to 17 s of the 45 s window.
+
+### Open
+
+- The BlackHole licence for use in CI is not checked here. No driver is needed for `clean-null`.
+- Candidates left: a pending permission decision with nobody to answer a prompt, a tap start that needs a real
+  audio clock on the destination or a session the runner lacks, and a defect in the tool.
+  None of them is tested.
+- Proposed and not run:
+  - A probe that makes the Core Audio calls of the route one by one, each with a time stamp before and after, and
+    starts a plain IO proc on the `Null Audio Device` without a tap. It shows which call blocks and whether any
+    IO start works on the runner. A `log stream` at info and debug level runs next to it.
+  - The same probe as an app bundle, once with and once without the row `kTCCServiceAudioCapture` for its bundle id.
+    It shows whether a permission decision blocks the start.
