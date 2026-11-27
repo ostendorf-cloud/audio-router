@@ -181,14 +181,14 @@ Not shown or failed:
 
 ## Recommended follow up
 
-Not filed. The owner decides. Each bullet is ready to become an issue.
+Filed as issues 84, 85 and 86. The owner triages them.
 
-- Automate in CI: the signature and notarization checks of the release asset (machine part of step 1),
+- Issue 84, automate in CI: the signature and notarization checks of the release asset (machine part of step 1),
   if `task bundle:verify` does not already cover `spctl` and `stapler`.
   Optionally a device list and default output smoke check, after the BlackHole licence is cleared.
-- Keep as hardware checklist: every step marked `no`, and the user facing half of steps 1, 8d and 8e.
+- Issue 85, keep as hardware checklist: every step marked `no`, and the user facing half of steps 1, 8d and 8e.
   Nothing else moves to CI on the evidence of this spike.
-- Second spike on the `AudioDeviceStart` block: the route start blocked about 3 minutes, then failed with
+- Issue 86, second spike on the `AudioDeviceStart` block: the route start blocked about 3 minutes, then failed with
   `OSStatus 268451843`, a route error. Only worth it if the owner wants a tap in CI. Details below.
 
 ### Automate in CI
