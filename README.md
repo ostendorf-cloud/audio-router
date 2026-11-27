@@ -141,6 +141,8 @@ Route the audio of single macOS apps to channel pairs of any output device.
   - Its `homebrew` job then pushes `Casks/audio-router.rb` to `ostendorf-cloud/homebrew-tap`.
     `scripts/render-cask.sh` renders the cask, `scripts/publish-homebrew-cask.sh` verifies the zip and pushes it.
   - To push the cask of a published release again, run `app-release.yaml` by hand on `main` with `cask-tag` set.
+    The `verify-asset` job checks the asset of that tag first.
+    A tag without a notarized asset, such as v0.1.0, fails the check and gets no cask.
   - `task test:cask` tests the cask scripts offline. `task lint:cask-audit` runs `brew audit` and `brew style`.
     It taps a scratch tap, so only CI runs it.
 - Open questions and measurements: [docs/prototype-findings.md](docs/prototype-findings.md).

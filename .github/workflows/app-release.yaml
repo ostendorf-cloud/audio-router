@@ -258,18 +258,22 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    # The sha256 of the zip this job verified, for the homebrew job. Set only after every check passed.
+    outputs:
+      zip-sha256: ${{ steps.verify.outputs.sha256 }}
     env:
       # A manual cask-tag run. The tag is the input and the code is the default branch. In the other
       # cases the tag is the bundle job's output and the code is that tag.
       CASK_TAG_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.cask-tag != '' && 'true' || 'false' }}
     steps:
-      # The input is never a ref: a cask-tag run checks out the ref it started on, the default branch.
+      # The input is never a ref: a cask-tag run checks out the commit it started on, on the default branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ env.CASK_TAG_RUN == 'true' && github.ref || needs.bundle.outputs.release-tag }}
+          ref: ${{ env.CASK_TAG_RUN == 'true' && github.sha || needs.bundle.outputs.release-tag }}
           persist-credentials: false
 
       - name: Download the published asset and verify it
+        id: verify
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -285,11 +289,12 @@ jobs:
           gh release download "${TAG}" --dir "${work}" --pattern "${zip}" --pattern "${zip}.sha256"
           ls -l "${work}"
           (cd "${work}" && shasum -a 256 -c "${zip}.sha256")
+          actual="$(shasum -a 256 "${work}/${zip}")"
+          actual="${actual%% *}"
+          [[ "${actual}" =~ ^[0-9a-f]{64}$ ]] || { echo "unexpected zip hash: ${actual}" >&2; exit 1; }
           # A cask-tag run has no bundle job of its own run to compare with.
           if [[ "${CASK_TAG_RUN}" != true ]]; then
             [[ -n "${BUNDLE_ZIP_SHA256}" ]] || { echo "the bundle job recorded no zip hash" >&2; exit 1; }
-            actual="$(shasum -a 256 "${work}/${zip}")"
-            actual="${actual%% *}"
             if [[ "${actual}" != "${BUNDLE_ZIP_SHA256}" ]]; then
               echo "hash mismatch: downloaded ${zip} is ${actual}, the bundle job recorded ${BUNDLE_ZIP_SHA256}" >&2
               exit 1
@@ -297,6 +302,8 @@ jobs:
           fi
           ditto -x -k "${work}/${zip}" "${work}/unzipped"
           scripts/verify-signature.sh "${work}/unzipped/audio-router.app"
+          # Last, so a failed check leaves no output. The homebrew job pins the zip it publishes to it.
+          echo "sha256=${actual}" >> "${GITHUB_OUTPUT}"
 
   # A manual run with cask-tag pushes from the default branch only. On another branch the bundle,
   # verify-asset and homebrew jobs all skip, so this job fails the run instead of leaving it green.
@@ -323,15 +330,15 @@ jobs:
   # cask is rendered from the zip downloaded from the release and verified against the hash the
   # bundle job recorded and against the release's .sha256 file (scripts/publish-homebrew-cask.sh).
   # A manual run (workflow_dispatch with cask-tag, default branch only) skips the bundle job, runs
-  # the verify-asset job on the asset of that tag and verifies against the .sha256 file alone. The
-  # notary resume run on a tag does not start this job. A pre-release is skipped, an identical cask
-  # is left alone. Modelled on gitcd's homebrew job.
+  # the verify-asset job on the asset of that tag and verifies against the hash that job computed on
+  # the zip it checked, and against the .sha256 file. The notary resume run on a tag does not start
+  # this job. A pre-release is skipped, an identical cask is left alone. Modelled on gitcd's homebrew job.
   homebrew:
     needs: [bundle, verify-asset]
-    # always() lets a manual run start while the bundle job is skipped. Both paths name the
+    # !cancelled() lets a manual run start while the bundle job is skipped. Both paths name the
     # verify-asset result, so a skipped or failed check never counts as a pass.
     if: >-
-      always() && (
+      !cancelled() && (
       (github.event_name == 'release' && needs.bundle.result == 'success' &&
       needs.verify-asset.result == 'success') ||
       (github.event_name == 'workflow_dispatch' && inputs.cask-tag != '' &&
@@ -365,7 +372,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAP_TOKEN: ${{ steps.tap-token.outputs.token }}
           TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.cask-tag || github.event.release.tag_name }}
-          ZIP_SHA256: ${{ needs.bundle.outputs.zip-sha256 }}
-          VERIFY_MODE: ${{ github.event_name == 'workflow_dispatch' && 'checksums' || 'hash' }}
+          # A release event: the hash the bundle job recorded, which verify-asset compared with the
+          # published zip. A manual run: the hash verify-asset computed on the zip it verified, so the
+          # zip pushed is the zip checked. An empty value fails the script closed.
+          ZIP_SHA256: >-
+            ${{ github.event_name == 'workflow_dispatch' && needs.verify-asset.outputs.zip-sha256 ||
+            needs.bundle.outputs.zip-sha256 }}
+          VERIFY_MODE: hash
           ALLOW_DOWNGRADE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow-downgrade || 'false' }}
         run: ./scripts/publish-homebrew-cask.sh

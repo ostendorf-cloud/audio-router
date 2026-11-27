@@ -32,9 +32,13 @@
   The `.sha256` check, the signature and the notarization checks stay.
   A tag whose asset is not signed with a Developer ID, notarized and stapled fails the check and gets no cask.
   That is intended, it covers the ad hoc signed v0.1.0.
-- A `cask-tag` run checks out the default branch, never the tag input. The check uses the current
-  `scripts/verify-signature.sh` and `Resources/AudioRouter.entitlements`. An older release signed with other
-  entitlements fails the check. The alternative, the scripts of the tag, would trust old code.
+- `verify-asset` outputs the sha256 of the zip it verified, set only after every check passed.
+  `homebrew` takes `ZIP_SHA256` from the `bundle` job on a release event and from `verify-asset` on a `cask-tag`
+  run, with `VERIFY_MODE=hash` on both. So the zip pushed into the cask is the zip that was checked.
+- A `cask-tag` run checks out the commit it started on (`github.sha`, on the default branch), never the tag input.
+  The check uses the current `scripts/verify-signature.sh` and `Resources/AudioRouter.entitlements`.
+  An older release signed with other entitlements fails the check.
+  The alternative, the scripts of the tag, would trust old code.
 - The cask strips no quarantine attribute. A notarized release should open without a Gatekeeper warning.
   Not verified until the first notarized release ran.
 - `lint:license` in the Taskfile and `find-commands` in `checks.yaml` are kept in step by hand.
