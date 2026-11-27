@@ -18,13 +18,15 @@
 # A rerun for the same tag finds the identical file and changes nothing.
 #
 # VERIFY_MODE selects what the downloaded zip is verified against:
-#   hash      (default) ZIP_SHA256, the hash the bundle job of the same run
-#             computed before it uploaded the zip, and the release's .sha256
-#             file. Rests on the integrity of the workflow run's own outputs.
-#   checksums the release's .sha256 file only. Used by the manual run after the
-#             run that built the release is gone. It proves the cask agrees
-#             with the published assets, not that they are the ones the build
-#             produced.
+#   hash      (default) ZIP_SHA256, a hash an earlier job of the same run
+#             recorded, and the release's .sha256 file. On a release event it is
+#             the hash the bundle job computed before it uploaded the zip. On a
+#             manual cask-tag run it is the hash the verify-asset job computed
+#             on the zip it verified. Rests on the integrity of the workflow
+#             run's own outputs. The workflow uses this mode on both paths.
+#   checksums the release's .sha256 file only. No workflow calls it. It proves
+#             the cask agrees with the published assets, not that they are the
+#             ones the build produced or the ones a check verified.
 #
 # TAG is the release tag, such as v0.1.0. ALLOW_DOWNGRADE=true lets a tag older
 # than the tap's cask through. GH_TOKEN reads this repository's release,
@@ -115,11 +117,11 @@ fi
 
 if [ "${verify_mode}" = "hash" ]; then
   if [ -z "${ZIP_SHA256:-}" ]; then
-    echo "no zip hash recorded for ${TAG}: use the manual run with the tag" >&2
+    echo "no zip hash recorded for ${TAG} by the bundle job or the verify-asset job of this run" >&2
     exit 1
   fi
   if [ "${got}" != "${ZIP_SHA256}" ]; then
-    echo "${zip} of ${TAG} differs from the zip the bundle job built, nothing pushed" >&2
+    echo "${zip} of ${TAG} differs from the zip hash recorded by the bundle job or the verify-asset job, nothing pushed" >&2
     exit 1
   fi
 fi
