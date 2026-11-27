@@ -55,7 +55,7 @@ The run log of run 45968366431 is the only source of the results below.
   The cask caveat says `You must reboot for the installation of blackhole-2ch to take effect.`
 - The step ran from 08:48:12 to 08:48:38. No password prompt, no reboot.
 - After the `coreaudiod` restart the tool lists `BlackHole2ch_UID     BlackHole 2ch               2`.
-- Unverified: the licence of BlackHole for use in CI.
+- Unverified: the licence of BlackHole for use in CI. A later web research is recorded under "Open" of the second spike.
 - Unverified: whether the device survives a runner restart. The log has no restart.
 
 ### Q4 Switch the default output
