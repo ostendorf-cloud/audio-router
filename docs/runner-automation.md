@@ -203,7 +203,7 @@ The cause is not found. Round 4 below narrows the hang to one call.
 ### Second spike method and limits
 
 - Run: GitHub Actions run 46010697518, 2026-11-27, workflow `spike-audiodevicestart.yaml` on the branch
-  `test/86-runner-spike-2` (commits `4574e33` and `3c83f94`). The workflow is not part of `main`.
+  `test/86-runner-spike-2` (commits `3d94697` and `0512cb7`). The workflow is not part of `main`.
   The spike ended with a removal commit, so the files are only in those commits of the branch history.
 - Runner: `macos-latest`, image `macos-26-arm64`, macOS 26.7.2 (build 25G332), SIP disabled, console user `runner`.
 - Four jobs, one runner each. Every quote below is a line of the saved job log of that run. Log times are UTC.
@@ -298,7 +298,7 @@ The other two change one thing each.
   audio clock on the destination or a session the runner lacks, and a defect in the tool.
   None of them is tested.
 - Two probes were written after this run and ran in round 4 below. They are the throwaway workflow
-  `spike-tap-steps.yaml` and the files under `.github/spike/`, in commit `87026d5` of the branch history.
+  `spike-tap-steps.yaml` and the files under `.github/spike/`, in commit `dea8880` of the branch history.
   They never went to `main`, like the first workflow, and a later commit of the branch removed them.
   - `tap-steps.swift` makes the Core Audio calls of the route start one by one in the default device stream mode,
     with a time stamp before and after each call. A watchdog ends the process when one call runs for 55 s.
@@ -325,8 +325,8 @@ Result is negative. The probes make the route start calls one by one. The call t
 ### Round 4 method and limits
 
 - Run: GitHub Actions run 46016546432, 2026-11-27, workflow `spike-tap-steps.yaml` on the branch
-  `test/86-runner-spike-2`, commit `87026d5` (it was `cad0ec9` before the rebase onto `main`).
-  The workflow is not part of `main`. Its files are in commit `87026d5`, `.github/spike/tap-steps.swift` is the
+  `test/86-runner-spike-2`, commit `dea8880` (it was `cad0ec9` before the rebase onto `main`).
+  The workflow is not part of `main`. Its files are in commit `dea8880`, `.github/spike/tap-steps.swift` is the
   program.
 - Runner: image `macos-26-arm64` version `20261117.0516.1`, macOS 26.7.2.
 - Source: the tone app of the second spike. The destination of the aggregate device is `Null Audio Device`.
