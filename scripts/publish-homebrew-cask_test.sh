@@ -294,7 +294,7 @@ ${get_sha}"
 
 reset_fakes
 ZIP_SHA256="$(sha_of "another build")"
-run_case "a zip that differs from the bundle job's hash is not pushed" v1.0.0 1 "differs from the zip the bundle job built" \
+run_case "a zip that differs from the recorded hash is not pushed" v1.0.0 1 "differs from the zip hash recorded by the bundle job or the verify-asset job" \
   "${view}
 ${download}"
 
@@ -312,7 +312,7 @@ ${download}"
 
 reset_fakes
 unset ZIP_SHA256
-run_case "the hash mode without a recorded hash stops" v1.0.0 1 "no zip hash recorded" \
+run_case "the hash mode without a recorded hash stops" v1.0.0 1 "by the bundle job or the verify-asset job of this run" \
   "${view}
 ${download}"
 
