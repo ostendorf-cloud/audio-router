@@ -1,9 +1,13 @@
 # Hardware checklist on a macOS runner
 
 Issue 60. This page says which steps of `docs/hardware-checklist.md` could run without the owner.
-Status: desk analysis only. No spike ran on a Mac or on a hosted runner.
+Status: desk analysis only. No spike has run yet.
 Every class below is a hypothesis from reading the checklist and the code. Nothing here is measured.
-The first column of the spike table is the work that is still open.
+The question is what the GitHub Actions macOS runner can do, not a Mac.
+The results will come from the log of the throwaway workflow `.github/workflows/spike-runner.yaml`
+(branch `test/60-runner-spike`, `macos-latest` as in `app-release.yaml`).
+Each probe prints `SPIKE[qN] RESULT:` lines. Paste them into the spike table, then re-classify the rows.
+Delete the workflow with the branch. It never goes to `main`.
 
 ## Method and limits
 
@@ -17,8 +21,9 @@ The first column of the spike table is the work that is still open.
 
 ## Spike questions
 
-Each question needs the command and its output from a real Mac and from a throwaway workflow on a branch.
-The throwaway workflow does not exist yet. It must not reach `main`.
+Each question needs the command and its output from the run log.
+Probe ids in the workflow: q1 install, q2 permission, q3 tap and tone, q4 default switch, q5 devices present.
+The Real Mac column stays `not verified` unless the owner measures it.
 
 | Question | Real Mac | Hosted runner | Candidate command |
 | --- | --- | --- | --- |
