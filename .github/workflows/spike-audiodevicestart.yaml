@@ -1,7 +1,10 @@
 name: spike-audiodevicestart
 
 # Throwaway spike for issue 86. Never merge to main, delete it with the branch.
-# One run tests one variant, picked by the input. Read the answer from the log lines SPIKE[...].
+# A push to the spike branch runs all four variants, one job and one runner each.
+# A dispatched run tests the one variant picked by the input. Dispatch needs the file on the default branch,
+# which this workflow never reaches, so the push trigger is the way to run it.
+# Read the answer from the log lines SPIKE[...] of each job, the job name carries the variant.
 # No secrets. The run changes the runner only, which is thrown away after the run.
 #
 # Variants:
@@ -13,6 +16,8 @@ name: spike-audiodevicestart
 # Every route start runs under a hard timeout, so a hung AudioDeviceStart costs ROUTE_TIMEOUT seconds, not 3 minutes.
 
 on:
+  push:
+    branches: [test/86-runner-spike-2]
   workflow_dispatch:
     inputs:
       variant:
@@ -30,15 +35,24 @@ permissions:
   contents: read
 
 env:
-  VARIANT: ${{ inputs.variant }}
   ROUTE_TIMEOUT: "45"
   TONE_ID: cloud.ostendorf.spike-tone
 
 jobs:
   probe:
+    name: probe ${{ matrix.variant }}
     # The image the release workflow (app-release.yaml, job bundle) uses.
     runs-on: macos-latest
     timeout-minutes: 15
+    env:
+      VARIANT: ${{ matrix.variant }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # A dispatch runs the picked variant only, a push runs all four.
+        variant: ${{ fromJSON(github.event_name == 'workflow_dispatch'
+          && format('["{0}"]', inputs.variant)
+          || '["baseline","default-avsd","null-device","clean-null"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -88,7 +102,7 @@ jobs:
 
       - name: Install the driver and restart coreaudiod
         # clean-null skips the whole step: no install and no coreaudiod restart.
-        if: inputs.variant != 'clean-null'
+        if: matrix.variant != 'clean-null'
         run: |
           echo "SPIKE[driver] start"
           brew install --cask blackhole-2ch
@@ -100,7 +114,7 @@ jobs:
 
       - name: Switch the default output to BlackHole
         # Only baseline and null-device switch. default-avsd and clean-null keep Apple Virtual Sound Device.
-        if: inputs.variant == 'baseline' || inputs.variant == 'null-device'
+        if: matrix.variant == 'baseline' || matrix.variant == 'null-device'
         run: |
           SwitchAudioSource -s "BlackHole 2ch" -t output
           echo "default output: $(SwitchAudioSource -c -t output)"
