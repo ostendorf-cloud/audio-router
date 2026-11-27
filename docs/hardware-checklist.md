@@ -21,6 +21,9 @@ Measurements so far: `docs/prototype-findings.md`. This list never edits that fi
   leave both boxes empty and say why in Notes. The release does not pass with such a step open.
 - Where the expected result says `to be recorded, no reference yet`, no measurement exists.
   Record the observed value. Pass or Fail is then the owner's judgement.
+- Each step opens with an `Ownership:` line. It says what stays with the owner and why, or which part a CI job
+  could run. The evidence is the step table in [`docs/runner-automation.md`](runner-automation.md) (issue 60).
+  The ownership line changes no check of the step.
 - Do not fill a field from memory or from the findings. Measure again in this run.
 
 ## Header
@@ -68,6 +71,10 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 
 ### 1. First open of the downloaded app
 
+- Ownership: machine part in CI (checksum, `codesign`, `spctl`, `stapler` on the asset), the owner keeps the
+  quarantine flag from a browser download, the Gatekeeper dialog and the menu bar look.
+  See the step table in [`docs/runner-automation.md`](runner-automation.md).
+
 - Do: download the zip and the `.sha256` file in a browser, so the quarantine flag is set.
   Put both in one folder and run:
 
@@ -102,6 +109,9 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 
 ### 2. Permission prompt for the app
 
+- Ownership: stays with the owner. The prompt is the test, and a written TCC row would skip it
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: start with no stored grant for the app. Create a route in the app and enable it.
   Step 4 covers the tool.
 - Expected: the system audio capture permission prompt appears once. Record the name it shows and
@@ -123,6 +133,9 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 
 ### 3. Permission denial in the app
 
+- Ownership: stays with the owner. It needs a denied state and a read of the error display
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: deny the prompt, or remove the grant in System Settings, Privacy & Security.
   Enable a route. Step 18 covers the texts and buttons of the error display in detail.
 - Expected: record what the app shows. Either the start fails with an OSStatus (the engine ends in
@@ -137,6 +150,9 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 - [ ] Pass  [ ] Fail
 
 ### 4. Permission flow of the tool (findings section 1)
+
+- Ownership: stays with the owner. It tests the prompt and the name of the terminal app
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 These are the open items of findings section 1. Record the answers here, not in the findings file.
 
@@ -174,6 +190,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 5. Unity with the -20 dBFS sine
 
+- Ownership: stays with the owner. No tap worked on the runner and the app half is visual
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: play your -20 dBFS 1 kHz sine in QuickTime Player, default output on the X-USB. Run:
 
   ```sh
@@ -193,6 +212,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 - [ ] Pass  [ ] Fail
 
 ### 6. Two routes on the X-USB at once (findings section 5, item 2)
+
+- Ownership: stays with the owner. One route already fails on the runner, and its virtual devices have 2
+  channels, not 32 ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Do: route two apps, QuickTime Player and Spotify, to different channel pairs of the X-USB.
   Both play. With the tool, in two terminals:
@@ -214,6 +236,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 7. Two routes on two different devices (findings section 5, item 1)
 
+- Ownership: stays with the owner. One route fails on the runner, so two are untested
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: use AirPods or a USB interface as the second device. Each app plays to its own
   device. Run two `route` commands, one per device uid.
 - Expected: both run together, no glitch. Not measured, no reference yet.
@@ -224,6 +249,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 ## C. Device and app events
 
 ### 8. Unplug and replug
+
+- Ownership: stays with the owner. It is a physical cable, and removing a virtual driver is a different event
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Do: with one route running, unplug the X32 USB cable. Wait 10 seconds. Plug it in again.
   Findings section 5 item 4 asks the same for the tool: run `route`, then unplug.
@@ -239,6 +267,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 8a. Unplug while Spotify plays on channels 3 and 4
 
+- Ownership: stays with the owner. It is physical and needs Spotify
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: route QuickTime Player to 1,2 and Spotify to 3,4. Both play. Unplug the X32 USB cable.
 - Expected: the route stops within about 50 ms and goes to `waitingForDevice`. Spotify plays
   on the default output, because the released tap no longer mutes it.
@@ -251,6 +282,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 8b. Replug after 8a
 
+- Ownership: stays with the owner. It follows 8a
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: plug the cable in again.
 - Expected: the route returns to `running` without a click after about 1.5 s plus the start.
   The app is silent on its normal output again. Time until audio on channels 3 and 4:
@@ -261,6 +295,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 8c. Flap within one second
 
+- Ownership: stays with the owner. It is physical timing
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: unplug the cable and plug it in again within 1 second.
 - Expected: the app is audible on the default output during the gap and the route starts once
   after the return. Gap and start time: to be recorded, no reference yet.
@@ -270,6 +307,10 @@ These are the open items of findings section 1. Record the answers here, not in 
 - [ ] Pass  [ ] Fail
 
 ### 8d. The default output moves to AirPods while an X32 route runs
+
+- Ownership: stays with the owner. A script can switch the default, but whether the app is audible on the
+  AirPods needs audio from an app and a listener, and the real X32 and AirPods
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Do: with the X32 route running, connect the AirPods so macOS makes them the default output.
 - Expected: the route pauses and goes to `waitingForDevice`. The app is audible on the AirPods.
@@ -282,6 +323,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 8e. The default output returns to the X32
 
+- Ownership: stays with the owner. The X32 does not exist on the runner, and listening to the result needs a
+  person ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: set the default output back to the X-USB.
 - Expected: the route resumes without a click after about 1.5 s plus the start. The app is silent
   on its normal output again. Time until audio on the routed channels: to be recorded, no
@@ -291,6 +335,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 - [ ] Pass  [ ] Fail
 
 ### 8f. The default output moves to the speakers
+
+- Ownership: stays with the owner. The runner has no speakers, its `Speakers` output is virtual
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Do: with the X32 route running, set the MacBook speakers as the default output.
 - Expected: the same as 8d with the speakers. The route pauses, the app is audible on the
@@ -302,6 +349,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 - [ ] Pass  [ ] Fail
 
 ### 9. Sample rate change on the X32
+
+- Ownership: stays with the owner. The X32 changes its own rate
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Precondition: no live mix on the desk.
 - Do: with a route running at 48 kHz, change the rate of the X32 (for example to 44.1 kHz in
@@ -316,6 +366,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 10. App quit and start
 
+- Ownership: stays with the owner. It needs a playing app and a working route
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: with a route running for QuickTime Player, quit QuickTime Player. Wait 10 seconds. Start it
   again and play the sine.
 - Expected: the route goes to `waitingForApp` on quit and to `running` after the restart, without a
@@ -325,6 +378,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 - [ ] Pass  [ ] Fail
 
 ### 11. Global off
+
+- Ownership: stays with the owner. It is a menu click, and UI scripting on the runner is unverified
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Do: with two routes running, switch global off in the menu, then on again.
 - Expected: after off, every route is down and both apps play normally on their own output at once.
@@ -336,6 +392,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 ## D. Quit, login and long run
 
 ### 12. Quit restores normal output
+
+- Ownership: stays with the owner. It is a listening test and a check by eye
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Do: with a route running, quit the app from the menu. Also stop the tool with Ctrl-C in a
   second run.
@@ -351,6 +410,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 13. Login restore after reboot
 
+- Ownership: stays with the owner. It needs a reboot and a login
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: enable the login item in the app. Reboot the Mac. Log in. Do not open the app yourself.
   Step 16 covers the login item with a log out and in, without a reboot.
 - Expected: the app starts at login, shows its menu bar icon, loads the stored routes and the routes
@@ -361,6 +423,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 - [ ] Pass  [ ] Fail
 
 ### 14. Thirty minute run for drift
+
+- Ownership: stays with the owner. It needs the X-USB, because drift is the question
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Do: two routes on the X-USB (step 6), the -6 dBFS sine in a loop in both apps, `--meter` running
   for the tool. Run 30 minutes with no other change. Findings section 9 asks for 60 minutes
@@ -386,6 +451,9 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 15. A second build gets a new permission prompt, or not
 
+- Ownership: stays with the owner. It needs two release assets and the permission store
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: after step 2 granted the permission, install a second build over the first.
   Use the next release asset. Open it as in step 1. Enable a route.
 - Expected: to be recorded, no reference yet. Both release assets carry the same Developer ID, so the
@@ -403,6 +471,9 @@ installed in `/Applications`, with at least one stored route. Where no measureme
 expected result says `to be recorded, no reference yet`.
 
 ### 16. Login item, restore and status
+
+- Ownership: stays with the owner. It needs a login, System Settings and an approval state
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Precondition: the app is in `/Applications` and the Startup toggle in Settings is on.
 - Do: log out and log in again, without a reboot. Do not open the app yourself.
@@ -425,6 +496,9 @@ expected result says `to be recorded, no reference yet`.
 - [ ] Pass  [ ] Fail
 
 ### 17. Live meters in the menu and in Settings
+
+- Ownership: stays with the owner. It is visual, with Activity Monitor numbers
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Precondition: a route runs with QuickTime Player playing the -20 dBFS sine (step 5).
 - Do: open the menu. Read the text line of the route. Close the menu. Open Settings and read the bar
@@ -456,6 +530,9 @@ expected result says `to be recorded, no reference yet`.
 
 ### 17a. Does the tap see the app volume
 
+- Ownership: stays with the owner. It needs a tap and a moving app volume, and neither worked on the runner
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Precondition: this is the volume sub question of issue 5. QuickTime Player plays the -20 dBFS
   sine through the tool route of step 5. System volume unchanged.
 - Do: run the tool with `--meter`. Move the volume slider of QuickTime Player itself to two
@@ -469,6 +546,9 @@ expected result says `to be recorded, no reference yet`.
 - [ ] Pass  [ ] Fail
 
 ### 18. Errors and actions
+
+- Ownership: stays with the owner. It needs a denied permission and a read of texts and buttons
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Precondition: a route that normally runs. Open the menu for each case and read the text under the
   route toggle.
@@ -512,6 +592,9 @@ expected result says `to be recorded, no reference yet`.
 
 ### 19. Route editor
 
+- Ownership: stays with the owner. It is UI interaction
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
+
 - Do: in Settings, create a route (app, device, source pair, destination pair) and save it.
   Edit it and save. Delete it.
   Edit a route that you switched off in the menu and save. Edit a route that is on and save.
@@ -532,6 +615,9 @@ expected result says `to be recorded, no reference yet`.
 - [ ] Pass  [ ] Fail
 
 ### 20. Settings opens in front
+
+- Ownership: stays with the owner. It is window focus, visual
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Precondition: another app has the focus and its window covers the screen centre.
 - Do: open the menu and choose `Settings…` (with an ellipsis). Do it again with the window already
