@@ -71,8 +71,8 @@ The unity criterion of the findings is `tap peak` within 0.2 dB of the file leve
 
 ### 1. First open of the downloaded app
 
-- Ownership: machine part in CI (checksum, `codesign`, `spctl`, `stapler` on the asset), the owner keeps the
-  quarantine flag from a browser download, the Gatekeeper dialog and the menu bar look.
+- Ownership: machine part could run in CI (issue 84: checksum, `codesign`, `spctl`, `stapler` on the asset).
+  The owner keeps the quarantine flag from a browser download, the Gatekeeper dialog and the menu bar look.
   See the step table in [`docs/runner-automation.md`](runner-automation.md).
 
 - Do: download the zip and the `.sha256` file in a browser, so the quarantine flag is set.
@@ -323,8 +323,8 @@ These are the open items of findings section 1. Record the answers here, not in 
 
 ### 8e. The default output returns to the X32
 
-- Ownership: stays with the owner. The X32 does not exist on the runner, and listening to the result needs a
-  person ([`docs/runner-automation.md`](runner-automation.md), step table).
+- Ownership: stays with the owner. The X32 does not exist on the runner
+  ([`docs/runner-automation.md`](runner-automation.md), step table).
 
 - Do: set the default output back to the X-USB.
 - Expected: the route resumes without a click after about 1.5 s plus the start. The app is silent
