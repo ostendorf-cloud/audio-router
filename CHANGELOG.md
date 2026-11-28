@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.1.1](https://github.com/ostendorf-cloud/audio-router/compare/v0.1.0...v0.1.1) (2026-11-28)
+
+### Bug Fixes
+
+- **ci:** use the client id for the release app token ([#96](https://github.com/ostendorf-cloud/audio-router/pull/96))
+
 ## v0.1.0 (2026-11-26)
 
 ### Features
