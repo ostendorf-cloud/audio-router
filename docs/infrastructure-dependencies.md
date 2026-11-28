@@ -18,7 +18,7 @@ This repository was created by hand. Until the infrastructure repository covers 
 
 ## Already provided by the organisation
 
-- The variables `GH_APP_RELEASE_APP_ID` and `GH_APP_DEPENDENCIES_APP_ID`.
+- The variables `GH_APP_RELEASE_CLIENT_ID` and `GH_APP_DEPENDENCIES_APP_ID`.
 - The secrets `GH_APP_RELEASE_PRIVATE_KEY`, `GH_APP_DEPENDENCIES_PRIVATE_KEY` and `GH_APP_SECURITY_PRIVATE_KEY`.
 - The signing secrets of `app-release.yaml`, visible to this repository only: `APPLE_CERT_P12_BASE64`,
   `APPLE_CERT_PASSWORD`, `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`, `APPLE_NOTARY_KEY_P8_BASE64` and

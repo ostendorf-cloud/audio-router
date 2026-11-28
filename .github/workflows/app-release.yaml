@@ -359,7 +359,7 @@ jobs:
         id: tap-token
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc  # v3.4.0
         with:
-          app-id: ${{ vars.GH_APP_RELEASE_APP_ID }}
+          client-id: ${{ vars.GH_APP_RELEASE_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_RELEASE_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: homebrew-tap
